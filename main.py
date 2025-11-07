@@ -3,6 +3,9 @@ import configparser
 import os
 
 
+"""
+    AWS SETUP
+"""
 def verify_aws_credentials():
     print('=== VERIFY AWS CREDENTIALS ===')
     
@@ -56,6 +59,10 @@ def get_user_credentials():
     aws_session_token = input("AWS Session Token (press Enter if none): ").strip() or None
     return aws_access_key_id, aws_secret_access_key, aws_session_token
 
+
+"""
+    MySQL Standalone and Sakila
+"""
 
 def main():
     verify_aws_credentials()
