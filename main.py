@@ -1,6 +1,9 @@
 import boto3
 import configparser
 import os
+from mypy_boto3_ec2 import EC2Client
+
+EC2_CLIENT: EC2Client | None = None
 
 
 """
@@ -60,10 +63,43 @@ def get_user_credentials():
     return aws_access_key_id, aws_secret_access_key, aws_session_token
 
 
+def set_clients():
+    global EC2_CLIENT
+    EC2_CLIENT = boto3.client(
+        'ec2',
+        aws_access_key_id = os.getenv('AWS_ACCESS_KEY_ID'),
+        aws_secret_access_key = os.getenv('AWS_SECRET_ACCESS_KEY'),
+        aws_session_token = os.getenv('AWS_SESSION_TOKEN'),
+        region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+        )
+
+
 """
     MySQL Standalone and Sakila
 """
-def create_private_subnet():
+def create_vpc(vpcName: str = 'db-cluster-vpc') -> str:
+    response = EC2_CLIENT.create_vpc(
+        CidrBlock='10.0.0.0/24',
+        TagSpecifications=[
+            {
+                'Tags':[
+                    {
+                        'Key': 'Name',
+                        'Value': vpcName
+                    }
+                ]
+            }
+        ]
+    )
+
+    return response['Vpc']['VpcId']
+
+
+def create_private_subnet() -> str:
+    response = EC2_CLIENT.create_subnet()
+
+
+def create_database_security_group():
     pass
 
 
@@ -97,6 +133,7 @@ def create_manager_instances(nbr: int) -> list[str]:
 
 def main():
     verify_aws_credentials()
+    set_clients()
 
 
 if __name__ == '__main__':
