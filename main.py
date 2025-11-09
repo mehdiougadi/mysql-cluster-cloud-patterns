@@ -1,5 +1,6 @@
 import boto3
 import configparser
+import sys
 import os
 from mypy_boto3_ec2 import EC2Client
 
@@ -77,6 +78,7 @@ def set_clients():
         print('- finished setting up the boto3 clients')
     except Exception:
         print('- failed to set the boto3 clients')
+        sys.exit(1)
 
 
 """
@@ -89,6 +91,7 @@ def create_vpc(vpcName: str = 'db-cluster-vpc') -> str:
             CidrBlock='10.0.0.0/16',
             TagSpecifications=[
                 {
+                    'ResourceType': 'vpc',
                     'Tags':[
                         {
                             'Key': 'Name',
@@ -101,22 +104,37 @@ def create_vpc(vpcName: str = 'db-cluster-vpc') -> str:
 
         print('- finished creating vpc successfully')
         return response['Vpc']['VpcId']
-    except Exception:
-        print(f'- failed to create vpc {vpcName}')
+    except Exception as e:
+        print(f'- failed to create vpc {vpcName}: {e}')
+        sys.exit(1)
 
 
-def create_private_subnet(vpcId: str) -> str:
+def create_private_subnet(vpcId: str, subnetName: str = 'db-private-subnet') -> str:
     print(f'- creating new private subnet for vpc {vpcId}')
     try:
         response = EC2_CLIENT.create_subnet(
             CidrBlock='10.0.1.0/24',
-            VpcId= vpcId
+            VpcId= vpcId,
+            
+            TagSpecifications=[
+                {
+                    'ResourceType': 'subnet',
+                    'Tags':[{
+                        'Key': 'Name',
+                        'Value': subnetName
+                    }]
+                }
+            ]
         )
 
+        subnet_id = response['Subnet']['SubnetId']
+        EC2_CLIENT.modify_vpc_block_public_access_options(InternetGatewayBlockMode='block-ingress')
+
         print('- finished creating private subnet successfully')
-        return response['Subnet']['SubnetId']
+        return subnet_id
     except Exception:
         print(f'- failed to create private subnet for vpc{vpcId}')
+        sys.exit(1)
 
 
 def create_database_security_group():
