@@ -63,6 +63,37 @@ def get_user_credentials():
 """
     MySQL Standalone and Sakila
 """
+def create_private_subnet():
+    pass
+
+
+def create_worker_instances(nbr: int) -> list[str]:
+    pass
+
+
+def create_manager_instances(nbr: int) -> list[str]:
+    pass
+
+
+"""
+    Proxy
+"""
+
+
+"""
+    Gatekeeper
+"""
+
+
+"""
+    Benchmark
+"""
+
+
+"""
+    Cleanup
+"""
+
 
 def main():
     verify_aws_credentials()
