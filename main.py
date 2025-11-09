@@ -4,8 +4,53 @@ import sys
 import os
 from mypy_boto3_ec2 import EC2Client
 
+
 EC2_CLIENT: EC2Client | None = None
 
+
+"""
+    Utility Methods
+"""
+def read_user_data(filename: str) -> str:
+    try:
+        filepath = os.path.join('user-data', filename)
+        with open(filepath, 'r') as f:
+            return f.read()
+        
+    except Exception:
+        print(f'- error reading user data file {filepath}')
+        sys.exit(1)
+ 
+    
+def create_security_group(sgName: str, vpcId: str,ingressRules: list[str], egressRules: list[str],  desc: str = '') -> str:
+    print(f'- creating new security group {sgName}')
+    try:
+        response = EC2_CLIENT.create_security_group(
+            GroupName=sgName,
+            Description=desc,
+            VpcId= vpcId
+        )
+
+        sgId = response['GroupId']
+
+        if ingressRules:
+            EC2_CLIENT.authorize_security_group_ingress(
+                GroupId= sgId,
+                IpPermissions=ingressRules
+            )
+
+        if egressRules:
+            EC2_CLIENT.authorize_security_group_egress(
+                GroupId= sgId,
+                IpPermissions=egressRules
+            )
+
+        print(f'- created security group {sgName} successfully')
+        return sgId
+    except Exception:
+        print(f'- failed to create security group {sgName}')
+        sys.exit(1)
+    
 
 """
     AWS SETUP
@@ -56,7 +101,7 @@ def verify_aws_credentials():
     print('- AWS credentials verified')
 
 
-def get_user_credentials():
+def get_user_credentials() -> tuple[str, str, str | None]:
     print("- please enter your AWS credentials:")
     aws_access_key_id = input("- AWS access key id: ").strip()
     aws_secret_access_key = input("- AWS secret access key: ").strip()
@@ -127,26 +172,92 @@ def create_private_subnet(vpcId: str, subnetName: str = 'db-private-subnet') -> 
             ]
         )
 
-        subnet_id = response['Subnet']['SubnetId']
+        subnetId = response['Subnet']['SubnetId']
         EC2_CLIENT.modify_vpc_block_public_access_options(InternetGatewayBlockMode='block-ingress')
 
         print('- finished creating private subnet successfully')
-        return subnet_id
+        return subnetId
     except Exception:
         print(f'- failed to create private subnet for vpc{vpcId}')
         sys.exit(1)
 
 
-def create_database_security_group():
-    pass
+def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> list[str]:
+    print('- creating new worker instances')
+    instancesId = []
+
+    ingress = []
+    egress = []
+    userData = read_user_data('worker.tpl')
+    sgId = create_security_group(sgName='sg-workers', vpcId= vpcId, ingressRules= ingress, egressRules=egress)
+    try:
+        response = EC2_CLIENT.run_instances(
+            ImageId= 'ami-0157af9aea2eef346',
+            InstanceType= 't2.micro',
+            SubnetId= subnetId,
+            SecurityGroupIds= [sgId],
+            MinCount= nbrInstances,
+            MaxCount= nbrInstances,
+            UserData= userData,
+            TagSpecifications= [
+                {
+                    'ResourceType': 'instance',
+                    'Tags':[
+                        {
+                            'Key': 'Name',
+                            'Value': f'worker-{i+1}'
+                        } for i in range(nbrInstances)
+                    ]
+                }
+            ]
+        )
+
+        instancesId = [instance['InstanceId'] for instance in response['Instances']]
+        print(f'- created {nbrInstances} worker instances successfully')
+        return instancesId
+
+    except Exception:
+        print('- failed to create worker instances')
+        sys.exit(1)
 
 
-def create_worker_instances(nbr: int) -> list[str]:
-    pass
+def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> list[str]:
+    print('- creating new manager instances')
+    instancesId = []
 
+    ingress = []
+    egress = []
+    userData = read_user_data('manager.tpl')
+    sgId = create_security_group(sgName='sg-managers', vpcId= vpcId, ingressRules= ingress, egressRules=egress)
+    try:
+        response = EC2_CLIENT.run_instances(
+            ImageId= 'ami-0157af9aea2eef346',
+            InstanceType= 't2.micro',
+            SubnetId= subnetId,
+            SecurityGroupIds= [sgId],
+            MinCount= nbrInstances,
+            MaxCount= nbrInstances,
+            UserData= userData,
+            TagSpecifications= [
+                {
+                    'ResourceType': 'instance',
+                    'Tags':[
+                        {
+                            'Key': 'Name',
+                            'Value': f'manager-{i+1}'
+                        } for i in range(nbrInstances)
+                    ]
+                }
+            ]
+        )
 
-def create_manager_instances(nbr: int) -> list[str]:
-    pass
+        instancesId = [instance['InstanceId'] for instance in response['Instances']]
+        print(f'- created {nbrInstances} manager instances successfully')
+        return instancesId
+
+    except Exception:
+        print('- failed to create manager instances')
+        sys.exit(1)
 
 
 """
@@ -176,9 +287,9 @@ def main():
     set_clients()
     print('*'*26 + '*********************' + '*'*26)
     print('')
-    print('*'*25 + ' DEPLOYING MYSQL NODES ' + '*'*25)
+    print('*'*26 + ' DEPLOYING INFRASTRUCTURE' + '*'*21)
     vpc_id = create_vpc()
-    custm_private_subnet = create_private_subnet(vpcId=vpc_id)
+    private_subnet_id = create_private_subnet(vpcId=vpc_id)
     print('*'*26 + '*********************' + '*'*26)
 
 
