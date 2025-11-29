@@ -230,6 +230,46 @@ def createInternetGateway(vpc_id, igw_name='log8415e-igw'):
         sys.exit(1)
 
 
+def createNATGateway(subnet_id, nat_name):
+    try:
+        print(f'- Creating NAT Gateway: {nat_name}')
+        
+        eip_response = EC2_CLIENT.allocate_address(Domain='vpc')
+        eip_allocation_id = eip_response['AllocationId']
+        
+        print(f'- Elastic IP allocated: {eip_response["PublicIp"]}')
+        
+        nat_response = EC2_CLIENT.create_nat_gateway(
+            SubnetId=subnet_id,
+            AllocationId=eip_allocation_id,
+            TagSpecifications=[
+                {
+                    'ResourceType': 'natgateway',
+                    'Tags': [
+                        {
+                            'Key': 'Name',
+                            'Value': nat_name
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        nat_gateway_id = nat_response['NatGateway']['NatGatewayId']
+        
+        print(f'- Waiting for NAT Gateway {nat_name} to become available...')
+        waiter = EC2_CLIENT.get_waiter('nat_gateway_available')
+        waiter.wait(NatGatewayIds=[nat_gateway_id])
+        
+        print(f'- NAT Gateway created successfully: {nat_gateway_id}')
+        
+        return nat_gateway_id
+        
+    except Exception as e:
+        print(f'- Failed to create NAT: {e}')
+        sys.exit(1)
+
+
 def createSecurityGroup(vpc_id, sg_name='log8415e-sg', sg_description='Security group for final assignment', ingress_rules=None, egress_rules=None):
     try:
         print(f'- Creating Security Group: {sg_name}')
