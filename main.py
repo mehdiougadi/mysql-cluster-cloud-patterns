@@ -270,6 +270,73 @@ def createNATGateway(subnet_id, nat_name):
         sys.exit(1)
 
 
+def createRoutingTable(vpc_id, igw_id=None, nat_gateway_id=None, route_table_name='route-table', is_public=False):
+    try:
+        print(f'- Creating Route Table: {route_table_name}')
+        
+        route_table_response = EC2_CLIENT.create_route_table(
+            VpcId=vpc_id,
+            TagSpecifications=[
+                {
+                    'ResourceType': 'route-table',
+                    'Tags': [
+                        {
+                            'Key': 'Name',
+                            'Value': route_table_name
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        route_table_id = route_table_response['RouteTable']['RouteTableId']
+        
+        if is_public and igw_id:
+            EC2_CLIENT.create_route(
+                RouteTableId=route_table_id,
+                DestinationCidrBlock='0.0.0.0/0',
+                GatewayId=igw_id
+            )
+
+            print(f'- Public Route Table created with route to IGW: {route_table_id}')
+
+        elif not is_public and nat_gateway_id:
+            EC2_CLIENT.create_route(
+                RouteTableId=route_table_id,
+                DestinationCidrBlock='0.0.0.0/0',
+                NatGatewayId=nat_gateway_id
+            )
+
+            print(f'- Private Route Table created with route to NAT: {route_table_id}')
+        else:
+            print(f'- Route Table created without internet route: {route_table_id}')
+        
+        return route_table_id
+        
+    except Exception as e:
+        print(f'- Failed to create routing table: {e}')
+        sys.exit(1)
+
+
+def associateRouteTable(route_table_id, subnet_id):
+    try:
+        print(f'- Associating Route Table {route_table_id} with Subnet {subnet_id}')
+        
+        association_response = EC2_CLIENT.associate_route_table(
+            RouteTableId=route_table_id,
+            SubnetId=subnet_id
+        )
+        
+        association_id = association_response['AssociationId']
+        print(f'- Route Table associated successfully: {association_id}')
+        
+        return association_id
+        
+    except Exception as e:
+        print(f'- Failed to associate route table: {e}')
+        sys.exit(1)
+
+
 def createSecurityGroup(vpc_id, sg_name='log8415e-sg', sg_description='Security group for final assignment', ingress_rules=None, egress_rules=None):
     try:
         print(f'- Creating Security Group: {sg_name}')
@@ -394,7 +461,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> l
     ingress = []
     egress = []
     userData = read_user_data('manager.tpl')
-    sgId = create_security_group(sgName='sg-managers', vpcId= vpcId, ingressRules= ingress, egressRules=egress)
+    sgId = createSecurityGroup(vpcId= vpcId, sgName='sg-workers', ingressRules= ingress, egressRules=egress)
     try:
         response = EC2_CLIENT.run_instances(
             ImageId= 'ami-0157af9aea2eef346',
