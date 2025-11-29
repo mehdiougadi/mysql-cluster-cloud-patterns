@@ -230,9 +230,76 @@ def createInternetGateway(vpc_id, igw_name='log8415e-igw'):
         sys.exit(1)
 
 
-def createSecurityGroup(vpc_id, sg_name='log8415e-sg', sg_description='Security group for final assignment'):
+def createSecurityGroup(vpc_id, sg_name='log8415e-sg', sg_description='Security group for final assignment', ingress_rules=None, egress_rules=None):
     try:
-        pass
+        print(f'- Creating Security Group: {sg_name}')
+        
+        sg_response = EC2_CLIENT.create_security_group(
+            GroupName=sg_name,
+            Description=sg_description,
+            VpcId=vpc_id,
+            TagSpecifications=[
+                {
+                    'ResourceType': 'security-group',
+                    'Tags': [
+                        {
+                            'Key': 'Name',
+                            'Value': sg_name
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        security_group_id = sg_response['GroupId']
+        
+        if ingress_rules:
+            print('- Adding ingress rules to Security Group')
+            for rule in ingress_rules:
+                EC2_CLIENT.authorize_security_group_ingress(
+                    GroupId=security_group_id,
+                    IpPermissions=[
+                        {
+                            'IpProtocol': rule['IpProtocol'],
+                            'FromPort': rule['FromPort'],
+                            'ToPort': rule['ToPort'],
+                            'IpRanges': [{'CidrIp': rule['CidrIp'], 'Description': rule['Description']}]
+                        }
+                    ]
+                )
+        
+        if egress_rules:
+            print('- Adding egress rules to Security Group')
+            try:
+                EC2_CLIENT.revoke_security_group_egress(
+                    GroupId=security_group_id,
+                    IpPermissions=[
+                        {
+                            'IpProtocol': '-1',
+                            'IpRanges': [{'CidrIp': '0.0.0.0/0'}]
+                        }
+                    ]
+                )
+            except Exception as e:
+                print(f'- Note: Could not remove default egress rule: {e}')
+            
+            for rule in egress_rules:
+                EC2_CLIENT.authorize_security_group_egress(
+                    GroupId=security_group_id,
+                    IpPermissions=[
+                        {
+                            'IpProtocol': rule['IpProtocol'],
+                            'FromPort': rule['FromPort'],
+                            'ToPort': rule['ToPort'],
+                            'IpRanges': [{'CidrIp': rule['CidrIp'], 'Description': rule['Description']}]
+                        }
+                    ]
+                )
+        
+        print(f'- Security Group created successfully: {security_group_id}')
+        
+        return security_group_id
+        
     except Exception as e:
         print(f'- Failed to create security group: {e}')
         sys.exit(1)
