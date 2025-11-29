@@ -246,7 +246,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> l
 
 
 def main():
-    print('*'*18 + ' Initial Setup ' + '*'*17)
+    print('*'*16 + ' AWS Boto3 script ' + '*'*16)
     validateAWSCredentials()
     setBoto3Clients()
     print('*'*50 + '\n')
