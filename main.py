@@ -198,7 +198,33 @@ def createSubnet(vpc_id, cidr_block, availability_zone, subnet_name, is_public=F
 
 def createInternetGateway(vpc_id, igw_name='log8415e-igw'):
     try:
-        pass
+        print(f'- Creating Internet Gateway: {igw_name}')
+        
+        igw_response = EC2_CLIENT.create_internet_gateway(
+            TagSpecifications=[
+                {
+                    'ResourceType': 'internet-gateway',
+                    'Tags': [
+                        {
+                            'Key': 'Name',
+                            'Value': igw_name
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        igw_id = igw_response['InternetGateway']['InternetGatewayId']
+        
+        EC2_CLIENT.attach_internet_gateway(
+            InternetGatewayId=igw_id,
+            VpcId=vpc_id
+        )
+        
+        print(f'- Internet Gateway created and attached: {igw_id}')
+        
+        return igw_id
+        
     except Exception as e:
         print(f'- Failed to create internet gateway: {e}')
         sys.exit(1)
