@@ -412,6 +412,56 @@ def createSecurityGroup(vpc_id, sg_name='log8415e-sg', sg_description='Security 
         sys.exit(1)
 
 
+def createEC2Instance(
+    subnet_id,
+    instance_type,
+    ami_id='ami-0157af9aea2eef346',
+    instance_name='instance',
+    security_group_id=None,
+    user_data=None,
+    count=1
+):
+    try:
+        print(f'- Creating {count} EC2 instance(s): {instance_name}')
+        
+        run_params = {
+            'ImageId': ami_id,
+            'InstanceType': instance_type,
+            'SubnetId': subnet_id,
+            'MinCount': count,
+            'MaxCount': count,
+            'TagSpecifications': [
+                {
+                    'ResourceType': 'instance',
+                    'Tags': [
+                        {
+                            'Key': 'Name',
+                            'Value': instance_name if count == 1 else f'{instance_name}-{i+1}'
+                        } for i in range(count)
+                    ]
+                }
+            ]
+        }
+        
+        if security_group_id:
+            run_params['SecurityGroupIds'] = [security_group_id]
+        
+        if user_data:
+            run_params['UserData'] = user_data
+        
+        response = EC2_CLIENT.run_instances(**run_params)
+        
+        instance_ids = [instance['InstanceId'] for instance in response['Instances']]
+        
+        print(f'- Created instance(s) successfully: {instance_ids}')
+        
+        return instance_ids
+        
+    except Exception as e:
+        print(f'- Failed to create EC2 instance: {e}')
+        sys.exit(1)
+
+
 """
     MySQL Standalone and Sakila
 """
@@ -423,35 +473,6 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> li
     egress = []
     userData = read_user_data('worker.tpl')
     sgId = createSecurityGroup(vpcId= vpcId, sgName='sg-workers', ingressRules= ingress, egressRules=egress)
-    try:
-        response = EC2_CLIENT.run_instances(
-            ImageId= 'ami-0157af9aea2eef346',
-            InstanceType= 't2.micro',
-            SubnetId= subnetId,
-            SecurityGroupIds= [sgId],
-            MinCount= nbrInstances,
-            MaxCount= nbrInstances,
-            UserData= userData,
-            TagSpecifications= [
-                {
-                    'ResourceType': 'instance',
-                    'Tags':[
-                        {
-                            'Key': 'Name',
-                            'Value': f'worker-{i+1}'
-                        } for i in range(nbrInstances)
-                    ]
-                }
-            ]
-        )
-
-        instancesId = [instance['InstanceId'] for instance in response['Instances']]
-        print(f'- created {nbrInstances} worker instances successfully')
-        return instancesId
-
-    except Exception:
-        print('- failed to create worker instances')
-        sys.exit(1)
 
 
 def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> list[str]:
@@ -461,36 +482,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> l
     ingress = []
     egress = []
     userData = read_user_data('manager.tpl')
-    sgId = createSecurityGroup(vpcId= vpcId, sgName='sg-workers', ingressRules= ingress, egressRules=egress)
-    try:
-        response = EC2_CLIENT.run_instances(
-            ImageId= 'ami-0157af9aea2eef346',
-            InstanceType= 't2.micro',
-            SubnetId= subnetId,
-            SecurityGroupIds= [sgId],
-            MinCount= nbrInstances,
-            MaxCount= nbrInstances,
-            UserData= userData,
-            TagSpecifications= [
-                {
-                    'ResourceType': 'instance',
-                    'Tags':[
-                        {
-                            'Key': 'Name',
-                            'Value': f'manager-{i+1}'
-                        } for i in range(nbrInstances)
-                    ]
-                }
-            ]
-        )
-
-        instancesId = [instance['InstanceId'] for instance in response['Instances']]
-        print(f'- created {nbrInstances} manager instances successfully')
-        return instancesId
-
-    except Exception:
-        print('- failed to create manager instances')
-        sys.exit(1)
+    sgId = createSecurityGroup(vpcId= vpcId, sgName='sg-managers', ingressRules= ingress, egressRules=egress)
 
 
 """
