@@ -159,7 +159,38 @@ def createVPC(cidr_block='10.0.0.0/16', vpc_name='log8415e-vpc'):
 
 def createSubnet(vpc_id, cidr_block, availability_zone, subnet_name, is_public=False):
     try:
-        pass
+        print(f'- Creating Subnet: {subnet_name} in {availability_zone}')
+        
+        subnet_response = EC2_CLIENT.create_subnet(
+            VpcId=vpc_id,
+            CidrBlock=cidr_block,
+            AvailabilityZone=availability_zone,
+            TagSpecifications=[
+                {
+                    'ResourceType': 'subnet',
+                    'Tags': [
+                        {
+                            'Key': 'Name',
+                            'Value': subnet_name
+                        }
+                    ]
+                }
+            ]
+        )
+        
+        subnet_id = subnet_response['Subnet']['SubnetId']
+        
+        if is_public:
+            EC2_CLIENT.modify_subnet_attribute(
+                SubnetId=subnet_id,
+                MapPublicIpOnLaunch={'Value': True}
+            )
+            print(f'- Public Subnet created with ID: {subnet_id}')
+        else:
+            print(f'- Private Subnet created with ID: {subnet_id}')
+        
+        return subnet_id
+        
     except Exception as e:
         print(f'- Failed to create subnet: {e}')
         sys.exit(1)
