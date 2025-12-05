@@ -520,7 +520,7 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
     
     sgId = createSecurityGroup(
         vpc_id=vpcId,
-        sg_name='sg-workers',
+        sg_name='worker-sg',
         sg_description='Security group for MySQL worker nodes',
         ingress_rules=ingress,
         egress_rules=egress
@@ -594,7 +594,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
 
     sgId = createSecurityGroup(
         vpc_id=vpcId,
-        sg_name='sg-manager',
+        sg_name='manager-sg',
         sg_description='Security group for MySQL manager node',
         ingress_rules=ingress,
         egress_rules=egress
@@ -678,7 +678,7 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
 
     sgId = createSecurityGroup(
         vpc_id=vpcId,
-        sg_name='sg-proxy-trusted-host',
+        sg_name='proxy-sg',
         sg_description='Security group for Proxy (Trusted Host) - NOT internet-facing',
         ingress_rules=ingress,
         egress_rules=egress
@@ -777,7 +777,7 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
 
     sgId = createSecurityGroup(
         vpc_id=vpcId,
-        sg_name='sg-gatekeeper',
+        sg_name='gatekeeper-sg',
         sg_description='Security group for Gatekeeper - Internet-facing',
         ingress_rules=ingress,
         egress_rules=egress
@@ -802,7 +802,7 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
 
 
 def main():
-    print('*'*16 + ' AWS Boto3 script ' + '*'*16)
+    print('*'*16 + ' AWS BOTO3 SCRIPT ' + '*'*16)
     validateAWSCredentials()
     setBoto3Clients()
     print('*'*50 + '\n')
@@ -812,6 +812,8 @@ def main():
     PRIVATE_SUBNET_CIDR = '10.0.2.0/24'
     AVAILABILITY_ZONE = 'us-east-1a'
 
+
+    print('*'*16 + ' CREATION INFRA ' + '*'*18)
     vpc_id = createVPC(cidr_block=VPC_CIDR, vpc_name='mysql-cluster-vpc')
 
     public_subnet_id = createSubnet(
@@ -876,6 +878,14 @@ def main():
         subnetId=private_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR
     )
+    print('*'*50 + '\n')
+
+    print('*'*16 + ' BENCHMARKING ' + '*'*20)
+    print('*'*50 + '\n')
+
+    print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)
+    print('*'*50 + '\n')
+
 
 if __name__ == '__main__':
     main()
