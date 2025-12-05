@@ -701,7 +701,99 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
 """
     Gatekeeper
 """
+def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: str) -> str:
+    print('- Creating Gatekeeper instance')
+    
+    ingress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 80,
+            'ToPort': 80,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTP access from internet'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 443,
+            'ToPort': 443,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTPS access from internet'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 5000,
+            'ToPort': 5000,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'API access from internet'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'SSH access for management'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 5000,
+            'ToPort': 5000,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'Response traffic from Proxy'
+        }
+    ]
+    
+    egress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 443,
+            'ToPort': 443,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTPS outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 80,
+            'ToPort': 80,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTP outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 5000,
+            'ToPort': 5000,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'Forwarding validated requests to Proxy'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'SSH to Proxy for management'
+        }
+    ]
+    
+    userData = read_user_data('gatekeeper.tpl')
 
+    sgId = createSecurityGroup(
+        vpc_id=vpcId,
+        sg_name='sg-gatekeeper',
+        sg_description='Security group for Gatekeeper - Internet-facing',
+        ingress_rules=ingress,
+        egress_rules=egress
+    )
+    
+    instancesId = createEC2Instance(
+        subnet_id=subnetId,
+        instance_type='t2.large',
+        instance_name='gatekeeper',
+        security_group_id=sgId,
+        user_data=userData,
+        count=1
+    )
+    
+    print(f'- Gatekeeper instance created: {instancesId[0]}')
+    return instancesId[0]
 
 """
     Benchmark
