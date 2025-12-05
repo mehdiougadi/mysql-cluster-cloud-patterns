@@ -807,6 +807,48 @@ def main():
     setBoto3Clients()
     print('*'*50 + '\n')
 
+    VPC_CIDR = '10.0.0.0/16'
+    PUBLIC_SUBNET_CIDR = '10.0.1.0/24'
+    PRIVATE_SUBNET_CIDR = '10.0.2.0/24'
+    AVAILABILITY_ZONE = 'us-east-1a'
+
+    vpc_id = createVPC(cidr_block=VPC_CIDR, vpc_name='mysql-cluster-vpc')
+
+    public_subnet_id = createSubnet(
+        vpc_id=vpc_id,
+        cidr_block=PUBLIC_SUBNET_CIDR,
+        availability_zone=AVAILABILITY_ZONE,
+        subnet_name='public-subnet',
+        is_public=True
+    )
+    
+    private_subnet_id = createSubnet(
+        vpc_id=vpc_id,
+        cidr_block=PRIVATE_SUBNET_CIDR,
+        availability_zone=AVAILABILITY_ZONE,
+        subnet_name='private-subnet',
+        is_public=False
+    )
+
+    igw_id = createInternetGateway(vpc_id=vpc_id, igw_name='mysql-cluster-igw')
+    nat_gateway_id = createNATGateway(subnet_id=public_subnet_id, nat_name='mysql-cluster-nat')
+
+    public_route_table_id = createRoutingTable(
+        vpc_id=vpc_id,
+        igw_id=igw_id,
+        route_table_name='public-route-table',
+        is_public=True
+    )
+    
+    private_route_table_id = createRoutingTable(
+        vpc_id=vpc_id,
+        nat_gateway_id=nat_gateway_id,
+        route_table_name='private-route-table',
+        is_public=False
+    )
+    
+    associateRouteTable(public_route_table_id, public_subnet_id)
+    associateRouteTable(private_route_table_id, private_subnet_id)
 
 if __name__ == '__main__':
     main()
