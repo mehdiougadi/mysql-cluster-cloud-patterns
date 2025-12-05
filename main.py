@@ -617,7 +617,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
     Proxy
 """
 def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, private_subnet_cidr: str) -> str:
-    print('- Creating Proxy instance (Trusted Host)')
+    print('- Creating Proxy instance')
     
     ingress = [
         {
@@ -794,6 +794,7 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
     
     print(f'- Gatekeeper instance created: {instancesId[0]}')
     return instancesId[0]
+
 
 """
     Benchmark
