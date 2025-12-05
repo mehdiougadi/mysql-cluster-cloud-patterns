@@ -465,29 +465,237 @@ def createEC2Instance(
 """
     MySQL Standalone and Sakila
 """
-def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> list[str]:
-    print('- creating new worker instances')
-    instancesId = []
+def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> list[str]:
+    print(f'- creating {nbrInstances} new worker instances')
 
-    ingress = []
-    egress = []
+    ingress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 3306,
+            'ToPort': 3306,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'MySQL access from Proxy for READ queries'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'SSH access from within VPC'
+        },
+        {
+            'IpProtocol': 'icmp',
+            'FromPort': -1,
+            'ToPort': -1,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'ICMP for ping checks from Proxy'
+        }
+    ]
+    
+    egress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 443,
+            'ToPort': 443,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTPS outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 80,
+            'ToPort': 80,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTP outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 3306,
+            'ToPort': 3306,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'MySQL replication traffic from manager'
+        }
+    ]
+    
     userData = read_user_data('worker.tpl')
-    sgId = createSecurityGroup(vpcId= vpcId, sgName='sg-workers', ingressRules= ingress, egressRules=egress)
+    
+    sgId = createSecurityGroup(
+        vpc_id=vpcId,
+        sg_name='sg-workers',
+        sg_description='Security group for MySQL worker nodes',
+        ingress_rules=ingress,
+        egress_rules=egress
+    )
+
+    instancesId = createEC2Instance(
+        subnet_id=subnetId,
+        instance_type='t2.micro',
+        instance_name='mysql-worker',
+        security_group_id=sgId,
+        user_data=userData,
+        count=nbrInstances
+    )
+    
+    print(f'- Worker instances created: {instancesId}')
+    return instancesId
 
 
-def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str,) -> list[str]:
-    print('- creating new manager instances')
-    instancesId = []
+def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> list[str]:
+    print(f'- creating {nbrInstances} new manager instances')
 
-    ingress = []
-    egress = []
+    ingress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 3306,
+            'ToPort': 3306,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'MySQL access from Proxy for WRITE queries'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'SSH access from within VPC'
+        },
+        {
+            'IpProtocol': 'icmp',
+            'FromPort': -1,
+            'ToPort': -1,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'ICMP for ping checks from Proxy'
+        }
+    ]
+    
+    egress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 443,
+            'ToPort': 443,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTPS outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 80,
+            'ToPort': 80,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTP outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 3306,
+            'ToPort': 3306,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'MySQL replication traffic to workers'
+        }
+    ]
+
     userData = read_user_data('manager.tpl')
-    sgId = createSecurityGroup(vpcId= vpcId, sgName='sg-managers', ingressRules= ingress, egressRules=egress)
+
+    sgId = createSecurityGroup(
+        vpc_id=vpcId,
+        sg_name='sg-manager',
+        sg_description='Security group for MySQL manager node',
+        ingress_rules=ingress,
+        egress_rules=egress
+    )
+    
+    instancesId = createEC2Instance(
+        subnet_id=subnetId,
+        instance_type='t2.micro',
+        instance_name='mysql-manager',
+        security_group_id=sgId,
+        user_data=userData,
+        count=1
+    )
+    
+    print(f'- Manager instances created: {instancesId}')
+    return instancesId
 
 
 """
     Proxy
 """
+def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, private_subnet_cidr: str) -> str:
+    print('- Creating Proxy instance (Trusted Host)')
+    
+    ingress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 5000,
+            'ToPort': 5000,
+            'CidrIp': public_subnet_cidr,
+            'Description': 'Proxy API access from Gatekeeper only'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': public_subnet_cidr,
+            'Description': 'SSH access from public subnet only (via Gatekeeper)'
+        }
+    ]
+    
+    egress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 443,
+            'ToPort': 443,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTPS outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 80,
+            'ToPort': 80,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTP outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 3306,
+            'ToPort': 3306,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'MySQL access to database cluster in private subnet'
+        },
+        {
+            'IpProtocol': 'icmp',
+            'FromPort': -1,
+            'ToPort': -1,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'ICMP for ping checks to workers and manager'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 5000,
+            'ToPort': 5000,
+            'CidrIp': public_subnet_cidr,
+            'Description': 'Response traffic to Gatekeeper'
+        }
+    ]
+    
+    userData = read_user_data('proxy.tpl')
+
+    sgId = createSecurityGroup(
+        vpc_id=vpcId,
+        sg_name='sg-proxy-trusted-host',
+        sg_description='Security group for Proxy (Trusted Host) - NOT internet-facing',
+        ingress_rules=ingress,
+        egress_rules=egress
+    )
+    
+    instancesId = createEC2Instance(
+        subnet_id=subnetId,
+        instance_type='t2.large',
+        instance_name='proxy-trusted-host',
+        security_group_id=sgId,
+        user_data=userData,
+        count=1
+    )
+    
+    print(f'- Proxy instance created: {instancesId[0]}')
+
+    return instancesId[0]
 
 
 """
