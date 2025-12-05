@@ -850,5 +850,32 @@ def main():
     associateRouteTable(public_route_table_id, public_subnet_id)
     associateRouteTable(private_route_table_id, private_subnet_id)
 
+    gatekeeper_id = create_gatekeeper_instance(
+        vpcId=vpc_id,
+        subnetId=public_subnet_id,
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR
+    )
+    
+    proxy_id = create_proxy_instance(
+        vpcId=vpc_id,
+        subnetId=private_subnet_id,
+        public_subnet_cidr=PUBLIC_SUBNET_CIDR,
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR
+    )
+    
+    manager_ids = create_manager_instances(
+        nbrInstances=1,
+        vpcId=vpc_id,
+        subnetId=private_subnet_id,
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR
+    )
+    
+    worker_ids = create_worker_instances(
+        nbrInstances=2,
+        vpcId=vpc_id,
+        subnetId=private_subnet_id,
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR
+    )
+
 if __name__ == '__main__':
     main()
