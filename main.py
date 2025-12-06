@@ -1,7 +1,9 @@
 import boto3
+import time
 import configparser
 import sys
 import os
+from cleanup import cleanup_all_resources
 
 
 """
@@ -430,17 +432,6 @@ def createEC2Instance(
             'SubnetId': subnet_id,
             'MinCount': count,
             'MaxCount': count,
-            'TagSpecifications': [
-                {
-                    'ResourceType': 'instance',
-                    'Tags': [
-                        {
-                            'Key': 'Name',
-                            'Value': instance_name if count == 1 else f'{instance_name}-{i+1}'
-                        } for i in range(count)
-                    ]
-                }
-            ]
         }
         
         if security_group_id:
@@ -452,6 +443,18 @@ def createEC2Instance(
         response = EC2_CLIENT.run_instances(**run_params)
         
         instance_ids = [instance['InstanceId'] for instance in response['Instances']]
+
+        for i, instance_id in enumerate(instance_ids):
+            tag_name = instance_name if count == 1 else f'{instance_name}-{i+1}'
+            EC2_CLIENT.create_tags(
+                Resources=[instance_id],
+                Tags=[
+                    {
+                        'Key': 'Name',
+                        'Value': tag_name
+                    }
+                ]
+            )
         
         print(f'- Created instance(s) successfully: {instance_ids}')
         
@@ -881,9 +884,13 @@ def main():
     print('*'*50 + '\n')
 
     print('*'*16 + ' BENCHMARKING ' + '*'*20)
+
     print('*'*50 + '\n')
 
+    time.sleep(180)
+
     print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)
+    cleanup_all_resources(EC2_CLIENT, vpc_id=vpc_id)
     print('*'*50 + '\n')
 
 
