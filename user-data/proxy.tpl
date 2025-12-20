@@ -26,7 +26,7 @@ DB_CONFIG = {
     'manager_host': '{MANAGER_HOST}',
     'worker_hosts': '{WORKER_HOSTS}'.split(','),
     'user': 'app_user',
-    'password': 'App123!',
+    'password': 'Mehdi1603!',
     'database': 'sakila'
 }
 
