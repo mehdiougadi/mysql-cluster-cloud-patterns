@@ -216,9 +216,7 @@ def cleanup_all_resources(ec2_client, vpc_id=None, vpc_name=None):
             print('- Error: No VPC ID or name provided')
             return
         
-        print(f'\n{"="*50}')
-        print(f'Starting cleanup for VPC: {vpc_id}')
-        print(f'{"="*50}\n')
+        print(f'- Starting cleanup for VPC: {vpc_id}')
         
         delete_ec2_instances(ec2_client, vpc_id)        
         delete_nat_gateways(ec2_client, vpc_id)
@@ -228,9 +226,7 @@ def cleanup_all_resources(ec2_client, vpc_id=None, vpc_name=None):
         delete_security_groups(ec2_client, vpc_id)
         delete_vpc(ec2_client, vpc_id)
         
-        print(f'\n{"="*50}')
-        print(f'Cleanup completed successfully for VPC: {vpc_id}')
-        print(f'{"="*50}\n')
+        print(f'- Cleanup completed successfully for VPC: {vpc_id}')
         
     except Exception as e:
         print(f'Fatal error during cleanup: {e}')
