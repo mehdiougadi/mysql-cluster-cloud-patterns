@@ -1,6 +1,4 @@
-import boto3
 import sys
-import time
 
 
 def delete_ec2_instances(ec2_client, vpc_id):
