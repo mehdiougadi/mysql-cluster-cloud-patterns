@@ -105,15 +105,37 @@ def setBoto3Clients():
 """
     Utils Methods
 """
-def read_user_data(filename: str) -> str:
+def read_user_data(filename: str, **kwargs) -> str:
     try:
         filepath = os.path.join('user-data', filename)
         with open(filepath, 'r') as f:
-            return f.read()
+            template = f.read()
         
-    except Exception:
-        print(f'- error reading user data file {filepath}')
+        for key, value in kwargs.items():
+            placeholder = f'{{{key.upper()}}}'
+            template = template.replace(placeholder, str(value))
+        
+        return template
+    except Exception as e:
+        print(f'- error reading user data file {filepath}: {e}')
         sys.exit(1)
+
+
+def get_instance_private_ip(instance_id):
+    response = EC2_CLIENT.describe_instances(InstanceIds=[instance_id])
+    return response['Reservations'][0]['Instances'][0]['PrivateIpAddress']
+
+
+def get_instance_public_ip(instance_id):
+    response = EC2_CLIENT.describe_instances(InstanceIds=[instance_id])
+    return response['Reservations'][0]['Instances'][0].get('PublicIpAddress', '')
+
+
+def wait_for_instance_running(instance_ids):
+    print(f'- Waiting for instances {instance_ids} to be running...')
+    waiter = EC2_CLIENT.get_waiter('instance_running')
+    waiter.wait(InstanceIds=instance_ids)
+    print(f'- Instances {instance_ids} are now running')
 
 
 """
@@ -468,81 +490,7 @@ def createEC2Instance(
 """
     MySQL Standalone and Sakila
 """
-def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> list[str]:
-    print(f'- creating {nbrInstances} new worker instances')
-
-    ingress = [
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 3306,
-            'ToPort': 3306,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'MySQL access from Proxy for READ queries'
-        },
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 22,
-            'ToPort': 22,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'SSH access from within VPC'
-        },
-        {
-            'IpProtocol': 'icmp',
-            'FromPort': -1,
-            'ToPort': -1,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'ICMP for ping checks from Proxy'
-        }
-    ]
-    
-    egress = [
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 443,
-            'ToPort': 443,
-            'CidrIp': '0.0.0.0/0',
-            'Description': 'HTTPS outbound for package updates'
-        },
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 80,
-            'ToPort': 80,
-            'CidrIp': '0.0.0.0/0',
-            'Description': 'HTTP outbound for package updates'
-        },
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 3306,
-            'ToPort': 3306,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'MySQL replication traffic from manager'
-        }
-    ]
-    
-    userData = read_user_data('worker.tpl')
-    
-    sgId = createSecurityGroup(
-        vpc_id=vpcId,
-        sg_name='worker-sg',
-        sg_description='Security group for MySQL worker nodes',
-        ingress_rules=ingress,
-        egress_rules=egress
-    )
-
-    instancesId = createEC2Instance(
-        subnet_id=subnetId,
-        instance_type='t2.micro',
-        instance_name='mysql-worker',
-        security_group_id=sgId,
-        user_data=userData,
-        count=nbrInstances
-    )
-    
-    print(f'- Worker instances created: {instancesId}')
-    return instancesId
-
-
-def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> list[str]:
+def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> tuple[list[str], list[str]]:
     print(f'- creating {nbrInstances} new manager instances')
 
     ingress = [
@@ -612,14 +560,100 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
         count=1
     )
     
+    wait_for_instance_running(instancesId)
+    
+    instance_ips = [get_instance_private_ip(iid) for iid in instancesId]
+    
     print(f'- Manager instances created: {instancesId}')
-    return instancesId
+    print(f'- Manager IPs: {instance_ips}')
+    
+    return instancesId, instance_ips
+
+
+def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, manager_ip: str) -> tuple[list[str], list[str]]:
+    print(f'- creating {nbrInstances} new worker instances')
+
+    ingress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 3306,
+            'ToPort': 3306,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'MySQL access from Proxy for READ queries'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'SSH access from within VPC'
+        },
+        {
+            'IpProtocol': 'icmp',
+            'FromPort': -1,
+            'ToPort': -1,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'ICMP for ping checks from Proxy'
+        }
+    ]
+    
+    egress = [
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 443,
+            'ToPort': 443,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTPS outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 80,
+            'ToPort': 80,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTP outbound for package updates'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 3306,
+            'ToPort': 3306,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'MySQL replication traffic from manager'
+        }
+    ]
+    
+    userData = read_user_data('worker.tpl', manager_host=manager_ip)
+    
+    sgId = createSecurityGroup(
+        vpc_id=vpcId,
+        sg_name='worker-sg',
+        sg_description='Security group for MySQL worker nodes',
+        ingress_rules=ingress,
+        egress_rules=egress
+    )
+
+    instancesId = createEC2Instance(
+        subnet_id=subnetId,
+        instance_type='t2.micro',
+        instance_name='mysql-worker',
+        security_group_id=sgId,
+        user_data=userData,
+        count=nbrInstances
+    )
+    
+    wait_for_instance_running(instancesId)
+    
+    instance_ips = [get_instance_private_ip(iid) for iid in instancesId]
+    
+    print(f'- Worker instances created: {instancesId}')
+    print(f'- Worker IPs: {instance_ips}')
+    
+    return instancesId, instance_ips
 
 
 """
     Proxy
 """
-def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, private_subnet_cidr: str) -> str:
+def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, private_subnet_cidr: str, manager_ip: str, worker_ips: list[str]) -> tuple[str, str]:
     print('- Creating Proxy instance')
     
     ingress = [
@@ -677,7 +711,8 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
         }
     ]
     
-    userData = read_user_data('proxy.tpl')
+    worker_hosts_str = ','.join(worker_ips)
+    userData = read_user_data('proxy.tpl', manager_host=manager_ip, worker_hosts=worker_hosts_str)
 
     sgId = createSecurityGroup(
         vpc_id=vpcId,
@@ -696,15 +731,20 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
         count=1
     )
     
+    wait_for_instance_running(instancesId)
+    
+    proxy_ip = get_instance_private_ip(instancesId[0])
+    
     print(f'- Proxy instance created: {instancesId[0]}')
+    print(f'- Proxy IP: {proxy_ip}')
 
-    return instancesId[0]
+    return instancesId[0], proxy_ip
 
 
 """
     Gatekeeper
 """
-def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: str) -> str:
+def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: str, proxy_ip: str) -> tuple[str, str]:
     print('- Creating Gatekeeper instance')
     
     ingress = [
@@ -776,7 +816,7 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
         }
     ]
     
-    userData = read_user_data('gatekeeper.tpl')
+    userData = read_user_data('gatekeeper.tpl', proxy_host=proxy_ip)
 
     sgId = createSecurityGroup(
         vpc_id=vpcId,
@@ -795,8 +835,14 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
         count=1
     )
     
+    wait_for_instance_running(instancesId)
+    
+    gatekeeper_ip = get_instance_public_ip(instancesId[0])
+    
     print(f'- Gatekeeper instance created: {instancesId[0]}')
-    return instancesId[0]
+    print(f'- Gatekeeper public IP: {gatekeeper_ip}')
+    
+    return instancesId[0], gatekeeper_ip
 
 
 """
@@ -855,39 +901,44 @@ def main():
     associateRouteTable(public_route_table_id, public_subnet_id)
     associateRouteTable(private_route_table_id, private_subnet_id)
 
-    gatekeeper_id = create_gatekeeper_instance(
-        vpcId=vpc_id,
-        subnetId=public_subnet_id,
-        private_subnet_cidr=PRIVATE_SUBNET_CIDR
-    )
-    
-    proxy_id = create_proxy_instance(
-        vpcId=vpc_id,
-        subnetId=private_subnet_id,
-        public_subnet_cidr=PUBLIC_SUBNET_CIDR,
-        private_subnet_cidr=PRIVATE_SUBNET_CIDR
-    )
-    
-    manager_ids = create_manager_instances(
+    manager_ids, manager_ips = create_manager_instances(
         nbrInstances=1,
         vpcId=vpc_id,
         subnetId=private_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR
     )
     
-    worker_ids = create_worker_instances(
+    worker_ids, worker_ips = create_worker_instances(
         nbrInstances=2,
         vpcId=vpc_id,
         subnetId=private_subnet_id,
-        private_subnet_cidr=PRIVATE_SUBNET_CIDR
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR,
+        manager_ip=manager_ips[0]
     )
+
+    proxy_id, proxy_ip = create_proxy_instance(
+        vpcId=vpc_id,
+        subnetId=private_subnet_id,
+        public_subnet_cidr=PUBLIC_SUBNET_CIDR,
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR,
+        manager_ip=manager_ips[0],
+        worker_ips=worker_ips
+    )
+
+    gatekeeper_id, gatekeeper_public_ip = create_gatekeeper_instance(
+        vpcId=vpc_id,
+        subnetId=public_subnet_id,
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR,
+        proxy_ip=proxy_ip
+    )
+
     print('*'*50 + '\n')
 
     print('*'*16 + ' BENCHMARKING ' + '*'*20)
 
     print('*'*50 + '\n')
 
-    time.sleep(180)
+    time.sleep(360)
 
     print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)
     cleanup_all_resources(EC2_CLIENT, vpc_id=vpc_id)
