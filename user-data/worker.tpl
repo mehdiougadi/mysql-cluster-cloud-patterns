@@ -7,7 +7,7 @@ exec 2>&1
 echo "Starting Worker setup at $(date)"
 
 yum update -y
-yum install -y mariadb105-server
+yum install -y mariadb105-server wget
 
 systemctl start mariadb
 systemctl enable mariadb
@@ -31,6 +31,31 @@ read-only=1
 MYSQL_CONFIG
 
 systemctl restart mariadb
+
+sleep 10
+
+echo "Installing Sakila database..."
+cd /tmp
+wget https://downloads.mysql.com/docs/sakila-db.tar.gz
+tar -xzf sakila-db.tar.gz
+cd sakila-db
+
+mysql -u root -pRoot123! <<'SAKILA_INSTALL'
+SOURCE sakila-schema.sql;
+SOURCE sakila-data.sql;
+SAKILA_INSTALL
+
+echo "Sakila database installed successfully"
+
+yum install -y sysbench
+
+sysbench /usr/share/sysbench/oltp_read_only.lua \
+    --mysql-db=sakila \
+    --mysql-user=app_user \
+    --mysql-password=Mehdi1603! \
+    prepare
+
+echo "Sysbench preparation completed"
 
 sleep 30
 
