@@ -4,6 +4,7 @@ import configparser
 import sys
 import os
 from cleanup import cleanup_all_resources
+from benchmark import benchmark_cluster
 
 
 """
@@ -663,13 +664,6 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
             'ToPort': 5000,
             'CidrIp': public_subnet_cidr,
             'Description': 'Proxy API access from Gatekeeper only'
-        },
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 22,
-            'ToPort': 22,
-            'CidrIp': public_subnet_cidr,
-            'Description': 'SSH access from public subnet only (via Gatekeeper)'
         }
     ]
     
@@ -845,11 +839,6 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
     return instancesId[0], gatekeeper_ip
 
 
-"""
-    Benchmark
-"""
-
-
 def main():
     print('')
     print('*'*16 + ' AWS BOTO3 SCRIPT ' + '*'*16)
@@ -937,24 +926,26 @@ def main():
 
     print('*'*16 + ' RESULTS OF INFRA ' + '*'*16)
 
-    print(f'manager:, {manager_ids[0]}: {manager_ips[0]}')
+    print(f'- manager:, {manager_ids[0]}: {manager_ips[0]}')
 
     for i, (wid, wip) in enumerate(zip(worker_ids, worker_ips), 1):
-        print(f'worker-{i}, {wid}: {wip}')
+        print(f'- worker-{i}, {wid}: {wip}')
 
-    print(f'proxy, {proxy_id}: {proxy_ip}')
+    print(f'- proxy, {proxy_id}: {proxy_ip}')
 
-    print(f'gatekeeper, {gatekeeper_id}: {gatekeeper_public_ip}')
+    print(f'- gatekeeper, {gatekeeper_id}: {gatekeeper_public_ip}')
 
     print('*'*50 + '\n')
 
     print('*'*16 + ' BENCHMARKING ' + '*'*20)
-
+    print('-Waiting for 2min so the instances are ready...')
+    time.sleep(120)
+    benchmark_cluster(gatekeeper_public_ip)
     print('*'*50 + '\n')
 
-    time.sleep(30)
-
     print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)
+    print('-Cleanup will start in 2min...')
+    time.sleep(120)
     cleanup_all_resources(EC2_CLIENT, vpc_id=vpc_id)
     print('*'*50 + '\n')
 
