@@ -1,6 +1,7 @@
 import requests
 import time
 
+
 def send_request(url, headers, query, strategy, results_dict):
     try:
         request_start = time.time()
@@ -26,7 +27,7 @@ def send_request(url, headers, query, strategy, results_dict):
         print(f'  Error: {str(e)}')
 
 
-def generate_report(results, strategies, gatekeeper_ip):
+def generate_report(results, strategies, gatekeeper_ip, ip_to_role):
     filename = "benchmark_result.txt"
     with open(filename, 'w') as f:
         f.write(f"Benchmark Results - Gatekeeper: {gatekeeper_ip}\n")
@@ -44,12 +45,17 @@ def generate_report(results, strategies, gatekeeper_ip):
         for strategy in strategies:
             hosts = {}
             for resp in results['strategies'][strategy]['read']['responses']:
-                h = resp['host']
-                hosts[h] = hosts.get(h, 0) + 1
+                ip = resp['host']
+                role = ip_to_role.get(ip, ip)
+                hosts[role] = hosts.get(role, 0) + 1
             f.write(f"  {strategy.upper()}: {hosts}\n")
 
 
-def benchmark_cluster(gatekeeper_ip: str, api_key: str = "test-api-key"):
+def benchmark_cluster(gatekeeper_ip: str, manager_ip: str, worker_ips: list, api_key: str = "blah-blah"):
+    ip_to_role = {manager_ip: 'manager'}
+    for idx, worker_ip in enumerate(worker_ips, 1):
+        ip_to_role[worker_ip] = f'worker-{idx}'
+    
     gatekeeper_url = f'http://{gatekeeper_ip}:5000/query'
     headers = {'Content-Type': 'application/json', 'X-API-Key': api_key}
     
@@ -67,7 +73,6 @@ def benchmark_cluster(gatekeeper_ip: str, api_key: str = "test-api-key"):
             'write': {'success': 0, 'failed': 0, 'total_time': 0, 'responses': []}
         }
         
-        # READ BATCH
         print(f'- Sending 1000 READ requests with {strategy} strategy...')
         read_start_time = time.time()
         for i in range(1000):
@@ -82,7 +87,6 @@ def benchmark_cluster(gatekeeper_ip: str, api_key: str = "test-api-key"):
         print(f'    - Total Time: {strategy_results["read"]["total_time"]:.2f}s')
         print(f'    - Average Time per Request: {strategy_results["read"]["total_time"]/1000:.4f}s')
 
-        # WRITE BATCH
         print(f'\n  Sending 1000 WRITE requests with {strategy} strategy...')
         write_start_time = time.time()
         for i in range(1000):
@@ -100,15 +104,7 @@ def benchmark_cluster(gatekeeper_ip: str, api_key: str = "test-api-key"):
         results['strategies'][strategy] = strategy_results
         print(f'-  Strategy {strategy.upper()} completed!\n')
 
-    # Console Summary Prints
-    for strategy in strategies:
-        read_avg = results['strategies'][strategy]['read']['total_time'] / 1000
-        write_avg = results['strategies'][strategy]['write']['total_time'] / 1000
-        print(f'  {strategy.upper():<15} {results["strategies"][strategy]["read"]["success"]:<15} {read_avg:<15.4f} {results["strategies"][strategy]["write"]["success"]:<15} {write_avg:<15.4f}')
-
-    # Final logic for Text File
-    generate_report(results, strategies, gatekeeper_ip)
+    generate_report(results, strategies, gatekeeper_ip, ip_to_role)
     print('\n- Benchmark results saved to benchmark_result.txt')
 
     return results
-

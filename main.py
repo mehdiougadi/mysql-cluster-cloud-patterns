@@ -940,7 +940,12 @@ def main():
     print('*'*16 + ' BENCHMARKING ' + '*'*20)
     print('-Waiting for 2min so the instances are ready...')
     time.sleep(120)
-    benchmark_cluster(gatekeeper_public_ip)
+    benchmark_cluster(
+    gatekeeper_ip=gatekeeper_public_ip,
+    manager_ip=manager_ips[0],
+    worker_ips=worker_ips,
+    api_key="test-api-key"
+)
     print('*'*50 + '\n')
 
     print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)
