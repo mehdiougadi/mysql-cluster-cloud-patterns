@@ -1,0 +1,18 @@
+Benchmark Results - Gatekeeper: 54.198.213.166
+--------------------------------------------------
+Strategy: DIRECT
+  READ  - Success: 1000, Avg: 0.0840s
+  WRITE - Success: 1000, Avg: 0.0747s
+
+Strategy: RANDOM
+  READ  - Success: 1000, Avg: 0.1153s
+  WRITE - Success: 1000, Avg: 0.0789s
+
+Strategy: CUSTOMIZED
+  READ  - Success: 1000, Avg: 0.0802s
+  WRITE - Success: 1000, Avg: 0.0815s
+
+Host Distribution (READ):
+  DIRECT: {'10.0.2.187': 1000}
+  RANDOM: {'10.0.2.11': 527, '10.0.2.67': 473}
+  CUSTOMIZED: {'10.0.2.67': 819, '10.0.2.11': 181}
