@@ -16,9 +16,10 @@ cd /opt/proxy
 cat > /opt/proxy/proxy_server.py <<'PROXY_APP'
 from flask import Flask, request, jsonify
 import pymysql
-import re
 import random
 import subprocess
+import time
+import threading
 
 app = Flask(__name__)
 
@@ -30,83 +31,53 @@ DB_CONFIG = {
     'database': 'sakila'
 }
 
+worker_health = {}
+health_lock = threading.Lock()
+
 def is_read_query(query):
     query_upper = query.strip().upper()
     read_keywords = ['SELECT', 'SHOW', 'DESCRIBE', 'EXPLAIN']
     write_keywords = ['INSERT', 'UPDATE', 'DELETE', 'CREATE', 'DROP', 'ALTER', 'GRANT', 'REVOKE']
-    
     for keyword in write_keywords:
-        if query_upper.startswith(keyword):
-            return False
-    
+        if query_upper.startswith(keyword): return False
     for keyword in read_keywords:
-        if query_upper.startswith(keyword):
-            return True
-    
+        if query_upper.startswith(keyword): return True
     return False
 
 def execute_query(host, query):
     try:
         connection = pymysql.connect(
-            host=host,
-            user=DB_CONFIG['user'],
-            password=DB_CONFIG['password'],
-            database=DB_CONFIG['database'],
-            cursorclass=pymysql.cursors.DictCursor
+            host=host, user=DB_CONFIG['user'], password=DB_CONFIG['password'],
+            database=DB_CONFIG['database'], cursorclass=pymysql.cursors.DictCursor
         )
-        
         with connection.cursor() as cursor:
             cursor.execute(query)
-            
             if is_read_query(query):
-                result = cursor.fetchall()
-                return {'success': True, 'data': result, 'host': host}
+                return {'success': True, 'data': cursor.fetchall(), 'host': host}
             else:
                 connection.commit()
                 return {'success': True, 'affected_rows': cursor.rowcount, 'host': host}
-    
     except Exception as e:
         return {'success': False, 'error': str(e), 'host': host}
-    
     finally:
-        if 'connection' in locals():
-            connection.close()
+        if 'connection' in locals(): connection.close()
 
 def get_ping_time(host):
     try:
-        result = subprocess.run(
-            ['ping', '-c', '3', host],
-            capture_output=True,
-            text=True,
-            timeout=5
-        )
-        
+        result = subprocess.run(['ping', '-c', '3', host], capture_output=True, text=True, timeout=5)
         if result.returncode == 0:
             for line in result.stdout.split('\n'):
-                if 'avg' in line:
-                    avg_time = float(line.split('/')[-3])
-                    return avg_time
+                if 'avg' in line: return float(line.split('/')[-3])
         return float('inf')
-    except Exception:
-        return float('inf')
+    except: return float('inf')
 
-def select_worker_direct():
-    return DB_CONFIG['manager_host']
-
-def select_worker_random():
-    workers = [w for w in DB_CONFIG['worker_hosts'] if w]
-    if not workers:
-        return DB_CONFIG['manager_host']
-    return random.choice(workers)
-
-def select_worker_customized():
-    workers = [w for w in DB_CONFIG['worker_hosts'] if w]
-    if not workers:
-        return DB_CONFIG['manager_host']
-    
-    ping_times = {worker: get_ping_time(worker) for worker in workers}
-    best_worker = min(ping_times, key=ping_times.get)
-    return best_worker
+def background_health_monitor():
+    while True:
+        new_health = {w: get_ping_time(w) for w in DB_CONFIG['worker_hosts'] if w}
+        with health_lock:
+            worker_health.clear()
+            worker_health.update(new_health)
+        time.sleep(10)
 
 @app.route('/health', methods=['GET'])
 def health():
@@ -114,43 +85,25 @@ def health():
 
 @app.route('/query', methods=['POST'])
 def handle_query():
-    try:
-        data = request.get_json()
-        query = data.get('query', '')
-        strategy = data.get('strategy', 'direct')
-        
-        if not query:
-            return jsonify({'success': False, 'error': 'No query provided'}), 400
-        
-        is_read = is_read_query(query)
-        
-        if is_read:
-            if strategy == 'direct':
-                host = select_worker_direct()
-            elif strategy == 'random':
-                host = select_worker_random()
-            elif strategy == 'customized':
-                host = select_worker_customized()
-            else:
-                host = select_worker_random()
-        else:
-            host = DB_CONFIG['manager_host']
-        
-        result = execute_query(host, query)
-        
-        return jsonify({
-            'success': result['success'],
-            'query_type': 'READ' if is_read else 'WRITE',
-            'strategy': strategy,
-            'host_used': host,
-            'result': result
-        }), 200 if result['success'] else 500
+    data = request.get_json()
+    query = data.get('query', '')
+    strategy = data.get('strategy', 'random')
     
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+    if is_read_query(query):
+        if strategy == 'direct': host = DB_CONFIG['manager_host']
+        elif strategy == 'customized':
+            with health_lock:
+                host = min(worker_health, key=worker_health.get) if worker_health else DB_CONFIG['manager_host']
+        else: host = random.choice(DB_CONFIG['worker_hosts'])
+    else:
+        host = DB_CONFIG['manager_host']
+
+    result = execute_query(host, query)
+    return jsonify(result), 200 if result['success'] else 500
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    threading.Thread(target=background_health_monitor, daemon=True).start()
+    app.run(host='0.0.0.0', port=5000)
 PROXY_APP
 
 cat > /etc/systemd/system/proxy.service <<'SERVICE'
@@ -170,11 +123,7 @@ RestartSec=10
 WantedBy=multi-user.target
 SERVICE
 
-chown -R ec2-user:ec2-user /opt/proxy
-
 systemctl daemon-reload
 systemctl enable proxy.service
 systemctl start proxy.service
-
-touch /tmp/proxy_setup_complete
-echo "Proxy setup completed at $(date)"
+echo "Proxy setup completed"
