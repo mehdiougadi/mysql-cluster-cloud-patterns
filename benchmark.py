@@ -56,7 +56,7 @@ def benchmark_cluster(gatekeeper_ip: str, manager_ip: str, worker_ips: list, api
     for idx, worker_ip in enumerate(worker_ips, 1):
         ip_to_role[worker_ip] = f'worker-{idx}'
     
-    gatekeeper_url = f'http://{gatekeeper_ip}:5000/query'
+    gatekeeper_url = f'http://{gatekeeper_ip}:8080/query'
     headers = {'Content-Type': 'application/json', 'X-API-Key': api_key}
     
     read_query = "SELECT * FROM actor LIMIT 10"

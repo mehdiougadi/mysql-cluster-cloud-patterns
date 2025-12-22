@@ -503,13 +503,6 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
             'Description': 'MySQL access from Proxy for WRITE queries'
         },
         {
-            'IpProtocol': 'tcp',
-            'FromPort': 22,
-            'ToPort': 22,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'SSH access from within VPC'
-        },
-        {
             'IpProtocol': 'icmp',
             'FromPort': -1,
             'ToPort': -1,
@@ -517,7 +510,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
             'Description': 'ICMP for ping checks from Proxy'
         }
     ]
-    
+
     egress = [
         {
             'IpProtocol': 'tcp',
@@ -583,13 +576,6 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
             'Description': 'MySQL access from Proxy for READ queries'
         },
         {
-            'IpProtocol': 'tcp',
-            'FromPort': 22,
-            'ToPort': 22,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'SSH access from within VPC'
-        },
-        {
             'IpProtocol': 'icmp',
             'FromPort': -1,
             'ToPort': -1,
@@ -597,7 +583,7 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
             'Description': 'ICMP for ping checks from Proxy'
         }
     ]
-    
+
     egress = [
         {
             'IpProtocol': 'tcp',
@@ -621,7 +607,7 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
             'Description': 'MySQL replication traffic from manager'
         }
     ]
-    
+
     userData = read_user_data('worker.tpl', manager_host=manager_ip)
     
     sgId = createSecurityGroup(
@@ -666,7 +652,7 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
             'Description': 'Proxy API access from Gatekeeper only'
         }
     ]
-    
+
     egress = [
         {
             'IpProtocol': 'tcp',
@@ -695,13 +681,6 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
             'ToPort': -1,
             'CidrIp': private_subnet_cidr,
             'Description': 'ICMP for ping checks to workers and manager'
-        },
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 5000,
-            'ToPort': 5000,
-            'CidrIp': public_subnet_cidr,
-            'Description': 'Response traffic to Gatekeeper'
         }
     ]
     
@@ -758,13 +737,6 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
         },
         {
             'IpProtocol': 'tcp',
-            'FromPort': 5000,
-            'ToPort': 5000,
-            'CidrIp': '0.0.0.0/0',
-            'Description': 'API access from internet'
-        },
-        {
-            'IpProtocol': 'tcp',
             'FromPort': 22,
             'ToPort': 22,
             'CidrIp': '0.0.0.0/0',
@@ -772,13 +744,13 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
         },
         {
             'IpProtocol': 'tcp',
-            'FromPort': 5000,
-            'ToPort': 5000,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'Response traffic from Proxy'
-        }
+            'FromPort': 8080,
+            'ToPort': 8080,
+            'CidrIp': '0.0.0.0/0',
+            'Description': 'HTTP access from internet'
+        },
     ]
-    
+
     egress = [
         {
             'IpProtocol': 'tcp',
@@ -800,16 +772,9 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
             'ToPort': 5000,
             'CidrIp': private_subnet_cidr,
             'Description': 'Forwarding validated requests to Proxy'
-        },
-        {
-            'IpProtocol': 'tcp',
-            'FromPort': 22,
-            'ToPort': 22,
-            'CidrIp': private_subnet_cidr,
-            'Description': 'SSH to Proxy for management'
         }
     ]
-    
+
     userData = read_user_data('gatekeeper.tpl', proxy_host=proxy_ip)
 
     sgId = createSecurityGroup(
