@@ -508,7 +508,7 @@ def create_s3_bucket(bucket_name):
 """
     MySQL Standalone and Sakila
 """
-def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> tuple[list[str], list[str]]:
+def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, bucket_name: str) -> tuple[list[str], list[str]]:
     print(f'- creating {nbrInstances} new manager instances')
 
     ingress = [
@@ -552,7 +552,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
         }
     ]
 
-    userData = read_user_data('manager.tpl')
+    userData = read_user_data('manager.tpl', bucket_name=bucket_name)
 
     sgId = createSecurityGroup(
         vpc_id=vpcId,
@@ -581,7 +581,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
     return instancesId, instance_ips
 
 
-def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, manager_ip: str) -> tuple[list[str], list[str]]:
+def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, manager_ip: str, bucket_name: str) -> tuple[list[str], list[str]]:
     print(f'- creating {nbrInstances} new worker instances')
 
     ingress = [
@@ -625,7 +625,7 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
         }
     ]
 
-    userData = read_user_data('worker.tpl', manager_host=manager_ip)
+    userData = read_user_data('worker.tpl', manager_host=manager_ip, bucket_name=bucket_name)
     
     sgId = createSecurityGroup(
         vpc_id=vpcId,
@@ -652,6 +652,47 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
     print(f'- Worker IPs: {instance_ips}')
     
     return instancesId, instance_ips
+
+
+def fetch_sysbench_results(bucket_name, instance_ids, instance_names):
+    print('- Fetching sysbench results from S3...')
+    
+    all_results = []
+    
+    for instance_id, instance_name in zip(instance_ids, instance_names):
+        try:
+            s3_key = f'sysbench-{instance_id}.txt'
+            local_file = f'sysbench-{instance_name}.txt'
+            
+            print(f'- Downloading: {s3_key}')
+            S3_CLIENT.download_file(bucket_name, s3_key, local_file)
+            
+            with open(local_file, 'r') as f:
+                content = f.read()
+                all_results.append(f'=== {instance_name} ({instance_id}) ===\n{content}\n')
+                print(f'- Downloaded: {local_file}')
+        
+        except S3_CLIENT.exceptions.NoSuchKey:
+            print(f'- Warning: No results found for {instance_id} - sysbench may still be running')
+            all_results.append(f'- {instance_name} ({instance_id})\n- Results not yet available\n')
+        except Exception as e:
+            print(f'  Error downloading {instance_id}: {e}')
+            all_results.append(f'- {instance_name} ({instance_id})\n- Error: {e}\n')
+    
+    with open('sysbench_all_results.txt', 'w') as f:
+        f.write('\n'.join(all_results))
+    
+    print('- Sysbench results saved to sysbench_all_results.txt')
+    return all_results
+
+
+def benchmark_mysql_instances(bucket_name, manager_ids, worker_ids):
+    print('- Running sysbench...')
+    
+    all_instance_ids = manager_ids + worker_ids
+    instance_names = ['manager'] + [f'worker-{i+1}' for i in range(len(worker_ids))]
+    
+    fetch_sysbench_results(bucket_name, all_instance_ids, instance_names)
 
 
 """
@@ -873,11 +914,15 @@ def main():
     associateRouteTable(public_route_table_id, public_subnet_id)
     associateRouteTable(private_route_table_id, private_subnet_id)
 
+    bucket_name = f'mysql-cluster-sysbench-{int(time.time())}'
+    create_s3_bucket(bucket_name)
+
     manager_ids, manager_ips = create_manager_instances(
         nbrInstances=1,
         vpcId=vpc_id,
         subnetId=private_subnet_id,
-        private_subnet_cidr=PRIVATE_SUBNET_CIDR
+        private_subnet_cidr=PRIVATE_SUBNET_CIDR,
+        bucket_name=bucket_name
     )
     
     worker_ids, worker_ips = create_worker_instances(
@@ -885,7 +930,8 @@ def main():
         vpcId=vpc_id,
         subnetId=private_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR,
-        manager_ip=manager_ips[0]
+        manager_ip=manager_ips[0],
+        bucket_name=bucket_name
     )
 
     proxy_id, proxy_ip = create_proxy_instance(
