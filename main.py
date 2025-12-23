@@ -488,6 +488,23 @@ def createEC2Instance(
         sys.exit(1)
 
 
+def create_s3_bucket(bucket_name):
+    try:
+        print(f'- Creating S3 bucket: {bucket_name}')
+        
+        S3_CLIENT.create_bucket(Bucket=bucket_name)
+        
+        print(f'- S3 bucket created successfully: {bucket_name}')
+        return bucket_name
+        
+    except S3_CLIENT.exceptions.BucketAlreadyOwnedByYou:
+        print(f'- S3 bucket {bucket_name} already exists and is owned by you')
+        return bucket_name
+    except Exception as e:
+        print(f'- Failed to create S3 bucket: {e}')
+        sys.exit(1)
+
+
 """
     MySQL Standalone and Sakila
 """

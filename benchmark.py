@@ -28,7 +28,7 @@ def send_request(url, headers, query, strategy, results_dict):
 
 
 def generate_report(results, strategies, gatekeeper_ip, ip_to_role):
-    filename = "benchmark_result.txt"
+    filename = "results/benchmark_result.txt"
     with open(filename, 'w') as f:
         f.write(f"Benchmark Results - Gatekeeper: {gatekeeper_ip}\n")
         f.write("-" * 50 + "\n")
