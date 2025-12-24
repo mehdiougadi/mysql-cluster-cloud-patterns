@@ -6,6 +6,8 @@ exec 2>&1
 
 echo "Starting Manager setup at $(date)"
 
+INSTANCE_ID=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
+
 yum update -y
 yum install -y mariadb105-server wget
 
@@ -48,15 +50,19 @@ echo "Sakila database installed successfully"
 
 yum install -y sysbench
 
+echo "Running sysbench benchmark on Manager..."
+
 sysbench /usr/share/sysbench/oltp_read_only.lua \
     --mysql-db=sakila \
     --mysql-user=app_user \
     --mysql-password=Mehdi1603! \
-    prepare
+    --time=60 \
+    --threads=4 \
+    run
 
-echo "Sysbench preparation completed"
+echo "Sysbench benchmark completed on Manager"
 
-mysql -u root -pRoot123! -e "SHOW MASTER STATUS\G" > /tmp/master_status.txt
+mysql -u root -pRoot123! -e "SHOW MASTER STATUS\G"
 
 touch /tmp/manager_setup_complete
 echo "Manager setup completed at $(date)"

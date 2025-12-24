@@ -215,7 +215,6 @@ def cleanup_all_resources(ec2_client, vpc_id=None, vpc_name=None):
             return
         
         print(f'- Starting cleanup for VPC: {vpc_id}')
-        
         delete_ec2_instances(ec2_client, vpc_id)        
         delete_nat_gateways(ec2_client, vpc_id)
         delete_internet_gateways(ec2_client, vpc_id)

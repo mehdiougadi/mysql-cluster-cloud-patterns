@@ -1,4 +1,5 @@
 import boto3
+import json
 import time
 import configparser
 import sys
@@ -78,7 +79,7 @@ def setBoto3Clients():
     try:
         print('- Starting setting up the boto3 clients')
 
-        global EC2_CLIENT, S3_CLIENT
+        global EC2_CLIENT, S3_CLIENT, IAM_CLIENT
 
         EC2_CLIENT = boto3.client(
             'ec2',
@@ -94,6 +95,13 @@ def setBoto3Clients():
             aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
             aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
             region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
+        )
+
+        IAM_CLIENT = boto3.client(
+            'iam',
+            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+            aws_session_token=os.getenv('AWS_SESSION_TOKEN')
         )
 
         print('- finished setting up the boto3 clients')
@@ -488,27 +496,10 @@ def createEC2Instance(
         sys.exit(1)
 
 
-def create_s3_bucket(bucket_name):
-    try:
-        print(f'- Creating S3 bucket: {bucket_name}')
-        
-        S3_CLIENT.create_bucket(Bucket=bucket_name)
-        
-        print(f'- S3 bucket created successfully: {bucket_name}')
-        return bucket_name
-        
-    except S3_CLIENT.exceptions.BucketAlreadyOwnedByYou:
-        print(f'- S3 bucket {bucket_name} already exists and is owned by you')
-        return bucket_name
-    except Exception as e:
-        print(f'- Failed to create S3 bucket: {e}')
-        sys.exit(1)
-
-
 """
     MySQL Standalone and Sakila
 """
-def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, bucket_name: str) -> tuple[list[str], list[str]]:
+def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> tuple[list[str], list[str]]:
     print(f'- creating {nbrInstances} new manager instances')
 
     ingress = [
@@ -552,7 +543,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
         }
     ]
 
-    userData = read_user_data('manager.tpl', bucket_name=bucket_name)
+    userData = read_user_data('manager.tpl')
 
     sgId = createSecurityGroup(
         vpc_id=vpcId,
@@ -581,7 +572,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
     return instancesId, instance_ips
 
 
-def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, manager_ip: str, bucket_name: str) -> tuple[list[str], list[str]]:
+def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, manager_ip: str) -> tuple[list[str], list[str]]:
     print(f'- creating {nbrInstances} new worker instances')
 
     ingress = [
@@ -625,7 +616,7 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
         }
     ]
 
-    userData = read_user_data('worker.tpl', manager_host=manager_ip, bucket_name=bucket_name)
+    userData = read_user_data('worker.tpl', manager_host=manager_ip)
     
     sgId = createSecurityGroup(
         vpc_id=vpcId,
@@ -652,47 +643,6 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
     print(f'- Worker IPs: {instance_ips}')
     
     return instancesId, instance_ips
-
-
-def fetch_sysbench_results(bucket_name, instance_ids, instance_names):
-    print('- Fetching sysbench results from S3...')
-    
-    all_results = []
-    
-    for instance_id, instance_name in zip(instance_ids, instance_names):
-        try:
-            s3_key = f'sysbench-{instance_id}.txt'
-            local_file = f'sysbench-{instance_name}.txt'
-            
-            print(f'- Downloading: {s3_key}')
-            S3_CLIENT.download_file(bucket_name, s3_key, local_file)
-            
-            with open(local_file, 'r') as f:
-                content = f.read()
-                all_results.append(f'=== {instance_name} ({instance_id}) ===\n{content}\n')
-                print(f'- Downloaded: {local_file}')
-        
-        except S3_CLIENT.exceptions.NoSuchKey:
-            print(f'- Warning: No results found for {instance_id} - sysbench may still be running')
-            all_results.append(f'- {instance_name} ({instance_id})\n- Results not yet available\n')
-        except Exception as e:
-            print(f'  Error downloading {instance_id}: {e}')
-            all_results.append(f'- {instance_name} ({instance_id})\n- Error: {e}\n')
-    
-    with open('sysbench_all_results.txt', 'w') as f:
-        f.write('\n'.join(all_results))
-    
-    print('- Sysbench results saved to sysbench_all_results.txt')
-    return all_results
-
-
-def benchmark_mysql_instances(bucket_name, manager_ids, worker_ids):
-    print('- Running sysbench...')
-    
-    all_instance_ids = manager_ids + worker_ids
-    instance_names = ['manager'] + [f'worker-{i+1}' for i in range(len(worker_ids))]
-    
-    fetch_sysbench_results(bucket_name, all_instance_ids, instance_names)
 
 
 """
@@ -915,7 +865,6 @@ def main():
     associateRouteTable(private_route_table_id, private_subnet_id)
 
     bucket_name = f'mysql-cluster-sysbench-{int(time.time())}'
-    create_s3_bucket(bucket_name)
 
     manager_ids, manager_ips = create_manager_instances(
         nbrInstances=1,
@@ -966,14 +915,15 @@ def main():
     print('*'*50 + '\n')
 
     print('*'*16 + ' BENCHMARKING ' + '*'*20)
-    print('-Waiting for 2min so the instances are ready...')
-    time.sleep(120)
+    print('-Waiting for 4min so the instances are ready...')
+    time.sleep(240)
+
     benchmark_cluster(
-    gatekeeper_ip=gatekeeper_public_ip,
-    manager_ip=manager_ips[0],
-    worker_ips=worker_ips,
-    api_key="test-api-key"
-)
+        gatekeeper_ip=gatekeeper_public_ip,
+        manager_ip=manager_ips[0],
+        worker_ips=worker_ips,
+        api_key="test-api-key"
+    )
     print('*'*50 + '\n')
 
     print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)

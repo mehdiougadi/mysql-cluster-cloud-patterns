@@ -1,5 +1,6 @@
 import requests
 import time
+import os
 
 
 def send_request(url, headers, query, strategy, results_dict):
@@ -29,6 +30,8 @@ def send_request(url, headers, query, strategy, results_dict):
 
 def generate_report(results, strategies, gatekeeper_ip, ip_to_role):
     filename = "results/benchmark_result.txt"
+    os.makedirs('results', exist_ok=True)
+
     with open(filename, 'w') as f:
         f.write(f"Benchmark Results - Gatekeeper: {gatekeeper_ip}\n")
         f.write("-" * 50 + "\n")
@@ -108,3 +111,4 @@ def benchmark_cluster(gatekeeper_ip: str, manager_ip: str, worker_ips: list, api
     print('\n- Benchmark results saved to benchmark_result.txt')
 
     return results
+
