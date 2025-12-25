@@ -69,7 +69,7 @@ def benchmark_cluster(gatekeeper_ip: str, manager_ip: str, worker_ips: list, api
     results = {'strategies': {}}
 
     for strategy in strategies:
-        print(f'- Testing strategy: {strategy.upper()}')
+        print(f'\n- Testing strategy: {strategy.upper()}')
         
         strategy_results = {
             'read': {'success': 0, 'failed': 0, 'total_time': 0, 'responses': []},
@@ -105,7 +105,7 @@ def benchmark_cluster(gatekeeper_ip: str, manager_ip: str, worker_ips: list, api
         print(f'    - Average Time per Request: {strategy_results["write"]["total_time"]/1000:.4f}s')
         
         results['strategies'][strategy] = strategy_results
-        print(f'-  Strategy {strategy.upper()} completed!\n')
+        print(f'-  Strategy {strategy.upper()} completed!')
 
     generate_report(results, strategies, gatekeeper_ip, ip_to_role)
     print('\n- Benchmark results saved to benchmark_result.txt')

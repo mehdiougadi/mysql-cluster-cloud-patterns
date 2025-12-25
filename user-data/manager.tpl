@@ -6,16 +6,19 @@ exec 2>&1
 
 echo "Starting Manager setup at $(date)"
 
-INSTANCE_ID=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
+echo "Updating system packages"
+apt-get update -y
 
-yum update -y
-yum install -y mariadb105-server wget
+echo "Installing MySQL Server"
+DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server wget
 
-systemctl start mariadb
-systemctl enable mariadb
+echo "Starting MySQL service"
+systemctl start mysql
+systemctl enable mysql
 
+echo "Configuring MySQL users"
 mysql -u root <<'MYSQL_SETUP'
-ALTER USER 'root'@'localhost' IDENTIFIED BY 'Root123!';
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'Root123!';
 CREATE USER 'app_user'@'%' IDENTIFIED BY 'Mehdi1603!';
 GRANT ALL PRIVILEGES ON *.* TO 'app_user'@'%';
 CREATE USER 'replication_user'@'%' IDENTIFIED BY 'Repl123!';
@@ -23,7 +26,8 @@ GRANT REPLICATION SLAVE ON *.* TO 'replication_user'@'%';
 FLUSH PRIVILEGES;
 MYSQL_SETUP
 
-cat >> /etc/my.cnf.d/server.cnf <<'MYSQL_CONFIG'
+echo "Configuring MySQL for replication"
+cat >> /etc/mysql/mysql.conf.d/mysqld.cnf <<'MYSQL_CONFIG'
 [mysqld]
 server-id=1
 log-bin=mysql-bin
@@ -31,13 +35,14 @@ binlog-format=ROW
 bind-address=0.0.0.0
 MYSQL_CONFIG
 
-systemctl restart mariadb
+echo "Restarting MySQL service"
+systemctl restart mysql
 
 sleep 10
 
 echo "Installing Sakila database..."
 cd /tmp
-wget https://downloads.mysql.com/docs/sakila-db.tar.gz
+wget -q https://downloads.mysql.com/docs/sakila-db.tar.gz
 tar -xzf sakila-db.tar.gz
 cd sakila-db
 
@@ -48,19 +53,24 @@ SAKILA_INSTALL
 
 echo "Sakila database installed successfully"
 
-yum install -y sysbench
+echo "Installing sysbench"
+apt-get install -y sysbench
 
-echo "Running sysbench benchmark on Manager..."
-
+echo "Preparing sysbench benchmark on Manager..."
 sysbench /usr/share/sysbench/oltp_read_only.lua \
     --mysql-db=sakila \
     --mysql-user=app_user \
     --mysql-password=Mehdi1603! \
-    --time=60 \
-    --threads=4 \
+    prepare
+
+echo "Running sysbench benchmark on Manager..."
+sysbench /usr/share/sysbench/oltp_read_only.lua \
+    --mysql-db=sakila \
+    --mysql-user=app_user \
+    --mysql-password=Mehdi1603! \
     run
 
-echo "Sysbench benchmark completed on Manager"
+echo "Sysbench benchmark completed"
 
 mysql -u root -pRoot123! -e "SHOW MASTER STATUS\G"
 

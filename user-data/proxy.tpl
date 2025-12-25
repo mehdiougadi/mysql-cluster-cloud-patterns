@@ -6,13 +6,20 @@ exec 2>&1
 
 echo "Starting Proxy setup at $(date)"
 
-yum update -y
-yum install -y python3 python3-pip mariadb105 iputils
+echo "Updating system packages"
+apt-get update -y
+
+echo "Installing Python3, MySQL client, and network tools"
+apt-get install -y python3 python3-pip mysql-client iputils-ping
+
+echo "Installing Python packages"
 pip3 install flask pymysql requests
 
+echo "Creating proxy application directory"
 mkdir -p /opt/proxy
 cd /opt/proxy
 
+echo "Creating proxy server application"
 cat > /opt/proxy/proxy_server.py <<'PROXY_APP'
 from flask import Flask, request, jsonify
 import pymysql
@@ -106,6 +113,7 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
 PROXY_APP
 
+echo "Creating systemd service for proxy"
 cat > /etc/systemd/system/proxy.service <<'SERVICE'
 [Unit]
 Description=MySQL Cluster Proxy Service
@@ -113,7 +121,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ec2-user
+User=ubuntu
 WorkingDirectory=/opt/proxy
 ExecStart=/usr/bin/python3 /opt/proxy/proxy_server.py
 Restart=always
@@ -123,7 +131,12 @@ RestartSec=10
 WantedBy=multi-user.target
 SERVICE
 
+echo "Setting permissions"
+chown -R ubuntu:ubuntu /opt/proxy
+
+echo "Starting proxy service"
 systemctl daemon-reload
 systemctl enable proxy.service
 systemctl start proxy.service
-echo "Proxy setup completed"
+
+echo "Proxy setup completed at $(date)"

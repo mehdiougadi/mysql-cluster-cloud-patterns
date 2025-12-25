@@ -6,13 +6,20 @@ exec 2>&1
 
 echo "Starting Gatekeeper setup at $(date)"
 
-yum update -y
-yum install -y python3 python3-pip
+echo "Updating system packages"
+apt-get update -y
+
+echo "Installing Python3 and pip"
+apt-get install -y python3 python3-pip
+
+echo "Installing Python packages"
 pip3 install flask requests
 
+echo "Creating gatekeeper application directory"
 mkdir -p /opt/gatekeeper
 cd /opt/gatekeeper
 
+echo "Creating gatekeeper server application"
 cat > /opt/gatekeeper/gatekeeper_server.py <<'GATEKEEPER_APP'
 from flask import Flask, request, jsonify
 import requests
@@ -88,6 +95,7 @@ if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=False)
 GATEKEEPER_APP
 
+echo "Creating systemd service for gatekeeper"
 cat > /etc/systemd/system/gatekeeper.service <<'SERVICE'
 [Unit]
 Description=MySQL Cluster Gatekeeper Service
@@ -95,7 +103,7 @@ After=network.target
 
 [Service]
 Type=simple
-User=ec2-user
+User=ubuntu
 WorkingDirectory=/opt/gatekeeper
 ExecStart=/usr/bin/python3 /opt/gatekeeper/gatekeeper_server.py
 Restart=always
@@ -105,8 +113,10 @@ RestartSec=10
 WantedBy=multi-user.target
 SERVICE
 
-chown -R ec2-user:ec2-user /opt/gatekeeper
+echo "Setting permissions"
+chown -R ubuntu:ubuntu /opt/gatekeeper
 
+echo "Starting gatekeeper service"
 systemctl daemon-reload
 systemctl enable gatekeeper.service
 systemctl start gatekeeper.service

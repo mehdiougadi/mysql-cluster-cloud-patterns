@@ -6,23 +6,29 @@ exec 2>&1
 
 echo "Starting Worker setup at $(date)"
 
-INSTANCE_ID=$(ec2-metadata --instance-id | cut -d ' ' -f 2)
+RANDOM_SERVER_ID=$((RANDOM % 1000 + 2))
+echo "Using server-id: ${RANDOM_SERVER_ID}"
 
-yum update -y
-yum install -y mariadb105-server wget
+echo "Updating system packages"
+apt-get update -y
 
-systemctl start mariadb
-systemctl enable mariadb
+echo "Installing MySQL Server"
+DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server wget
 
+echo "Starting MySQL service"
+systemctl start mysql
+systemctl enable mysql
+
+echo "Configuring MySQL users"
 mysql -u root <<'MYSQL_SETUP'
-ALTER USER 'root'@'localhost' IDENTIFIED BY 'Root123!';
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'Root123!';
 CREATE USER 'app_user'@'%' IDENTIFIED BY 'Mehdi1603!';
 GRANT ALL PRIVILEGES ON *.* TO 'app_user'@'%';
 FLUSH PRIVILEGES;
 MYSQL_SETUP
 
-RANDOM_SERVER_ID=$((RANDOM % 1000 + 2))
-cat >> /etc/my.cnf.d/server.cnf <<MYSQL_CONFIG
+echo "Configuring MySQL for replication (read-only replica)"
+cat >> /etc/mysql/mysql.conf.d/mysqld.cnf <<MYSQL_CONFIG
 [mysqld]
 server-id=${RANDOM_SERVER_ID}
 relay-log=mysql-relay-bin
@@ -32,49 +38,87 @@ bind-address=0.0.0.0
 read-only=1
 MYSQL_CONFIG
 
-systemctl restart mariadb
+echo "Restarting MySQL service"
+systemctl restart mysql
 
 sleep 10
 
-echo "Installing Sakila database..."
-cd /tmp
-wget https://downloads.mysql.com/docs/sakila-db.tar.gz
-tar -xzf sakila-db.tar.gz
-cd sakila-db
-
-mysql -u root -pRoot123! <<'SAKILA_INSTALL'
-SOURCE sakila-schema.sql;
-SOURCE sakila-data.sql;
-SAKILA_INSTALL
-
-echo "Sakila database installed successfully"
-
-yum install -y sysbench
-
-echo "Running sysbench benchmark on Worker ${INSTANCE_ID}..."
-
-sysbench /usr/share/sysbench/oltp_read_only.lua \
-    --mysql-db=sakila \
-    --mysql-user=app_user \
-    --mysql-password=Mehdi1603! \
-    --time=60 \
-    --threads=4 \
-    run
-
-echo "Sysbench benchmark completed on Worker"
-
-sleep 30
-
 MANAGER_HOST="{MANAGER_HOST}"
+MAX_RETRIES=30
+RETRY_COUNT=0
+
+echo "Waiting for manager at ${MANAGER_HOST} to be ready..."
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if mysql -h ${MANAGER_HOST} -u replication_user -pRepl123! -e "SELECT 1;" &>/dev/null; then
+        echo "Manager is ready!"
+        break
+    fi
+    echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Manager not ready, waiting..."
+    sleep 20
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "ERROR: Manager never became ready"
+    exit 1
+fi
+
+echo "Fetching master status from ${MANAGER_HOST}..."
+MASTER_STATUS=$(mysql -h ${MANAGER_HOST} -u replication_user -pRepl123! -e "SHOW MASTER STATUS\G" 2>/dev/null)
+MASTER_LOG_FILE=$(echo "$MASTER_STATUS" | grep "File:" | awk '{print $2}')
+MASTER_LOG_POS=$(echo "$MASTER_STATUS" | grep "Position:" | awk '{print $2}')
+
+echo "Master log file: ${MASTER_LOG_FILE}, position: ${MASTER_LOG_POS}"
+
 mysql -u root -pRoot123! <<REPLICATION_SETUP
+STOP SLAVE;
+RESET SLAVE ALL;
 CHANGE MASTER TO
   MASTER_HOST='${MANAGER_HOST}',
   MASTER_USER='replication_user',
   MASTER_PASSWORD='Repl123!',
-  MASTER_LOG_FILE='mysql-bin.000001',
-  MASTER_LOG_POS=4;
+  MASTER_LOG_FILE='${MASTER_LOG_FILE}',
+  MASTER_LOG_POS=${MASTER_LOG_POS};
 START SLAVE;
 REPLICATION_SETUP
+
+sleep 5
+echo "=== SLAVE STATUS ==="
+mysql -u root -pRoot123! -e "SHOW SLAVE STATUS\G"
+
+echo "Waiting for Sakila database to be replicated..."
+MAX_RETRIES=60
+RETRY_COUNT=0
+
+while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+    if mysql -u root -pRoot123! -e "USE sakila; SHOW TABLES;" &>/dev/null; then
+        TABLE_COUNT=$(mysql -u root -pRoot123! -e "USE sakila; SHOW TABLES;" | wc -l)
+        if [ "$TABLE_COUNT" -gt 10 ]; then
+            echo "Sakila database replicated successfully with $TABLE_COUNT tables!"
+            break
+        fi
+    fi
+    echo "Attempt $((RETRY_COUNT + 1))/$MAX_RETRIES: Waiting for Sakila replication..."
+    sleep 10
+    RETRY_COUNT=$((RETRY_COUNT + 1))
+done
+
+if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
+    echo "ERROR: Sakila database never replicated"
+    exit 1
+fi
+
+echo "Installing sysbench"
+apt-get install -y sysbench
+
+echo "Running sysbench benchmark on Worker..."
+sysbench /usr/share/sysbench/oltp_read_only.lua \
+    --mysql-db=sakila \
+    --mysql-user=app_user \
+    --mysql-password=Mehdi1603! \
+    run
+
+echo "Sysbench benchmark completed"
 
 touch /tmp/worker_setup_complete
 echo "Worker setup completed at $(date)"
