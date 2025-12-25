@@ -1,5 +1,4 @@
 import boto3
-import json
 import time
 import configparser
 import sys
@@ -46,7 +45,7 @@ def validateAWSCredentials():
                 is_not_valid = False
 
             except Exception:
-                print('- credential verification failed\n')
+                print('- Credential verification failed\n')
                 aws_access_key_id, aws_secret_access_key, aws_session_token = getAWSCredentials()
 
         os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key_id
@@ -79,7 +78,7 @@ def setBoto3Clients():
     try:
         print('- Starting setting up the boto3 clients')
 
-        global EC2_CLIENT, S3_CLIENT, IAM_CLIENT
+        global EC2_CLIENT
 
         EC2_CLIENT = boto3.client(
             'ec2',
@@ -89,22 +88,7 @@ def setBoto3Clients():
             region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
         )
 
-        S3_CLIENT = boto3.client(
-            's3',
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            aws_session_token=os.getenv('AWS_SESSION_TOKEN'),
-            region_name=os.getenv('AWS_DEFAULT_REGION', 'us-east-1')
-        )
-
-        IAM_CLIENT = boto3.client(
-            'iam',
-            aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-            aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
-            aws_session_token=os.getenv('AWS_SESSION_TOKEN')
-        )
-
-        print('- finished setting up the boto3 clients')
+        print('- Finished setting up the boto3 clients')
 
     except Exception as e:
         print(f'Failed to set Boto3\'s clients: {e}')
@@ -448,7 +432,7 @@ def createSecurityGroup(vpc_id, sg_name='log8415e-sg', sg_description='Security 
 def createEC2Instance(
     subnet_id,
     instance_type,
-    ami_id='ami-0157af9aea2eef346',
+    ami_id='ami-0c7217cdde317cfec',
     instance_name='instance',
     security_group_id=None,
     user_data=None,
@@ -643,6 +627,105 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
     print(f'- Worker IPs: {instance_ips}')
     
     return instancesId, instance_ips
+
+
+def fetch_sysbench_results(instance_ids, instance_names):
+    print('- Fetching sysbench results from EC2 console output...')
+
+    os.makedirs('results', exist_ok=True)
+    
+    all_results = []
+    
+    for instance_id, instance_name in zip(instance_ids, instance_names):
+        print(f'- Checking {instance_name} ({instance_id})...')
+        
+        try:
+            response = EC2_CLIENT.get_console_output(InstanceId=instance_id)
+            
+            if 'Output' in response:
+                console_output = response['Output']
+                
+                local_file = f'results/sysbench-{instance_name}.txt'
+                with open(local_file, 'w', encoding='utf-8') as f:
+                    f.write(console_output)
+                
+                print(f'- Results saved to {local_file}')
+                all_results.append(f'=== {instance_name} ({instance_id}) ===\n{console_output}\n')
+            else:
+                print('- No console output available yet')
+                
+        except Exception as e:
+            print(f'- Error: {e}')
+    
+    if all_results:
+        with open('results/sysbench_all_results.txt', 'w', encoding='utf-8') as f:
+            f.write('\n'.join(all_results))
+        print('- All results saved to results/sysbench_all_results.txt')
+    else:
+        print('- No results to save')
+
+
+def wait_for_sysbench_completion(instance_ids, timeout=600):
+    print(f'- Waiting for sysbench to complete on {len(instance_ids)} instance(s)...')
+    print(f'- Timeout set to {timeout} seconds ({timeout//60} minutes)')
+    
+    start_time = time.time()
+    completed = set()
+    last_check_times = {iid: 0 for iid in instance_ids}
+    check_interval = 30
+    
+    while len(completed) < len(instance_ids):
+        elapsed = time.time() - start_time
+        
+        if elapsed > timeout:
+            print(f'\n- Timeout reached after {elapsed:.0f} seconds')
+            print(f'- Completed: {len(completed)}/{len(instance_ids)} instances')
+            if completed:
+                print(f'- Completed instances: {list(completed)}')
+            remaining = set(instance_ids) - completed
+            if remaining:
+                print(f'- Still waiting for: {list(remaining)}')
+            return
+        
+        for instance_id in instance_ids:
+            if instance_id in completed:
+                continue
+            
+            if time.time() - last_check_times[instance_id] < check_interval:
+                continue
+            
+            last_check_times[instance_id] = time.time()
+            
+            try:
+                response = EC2_CLIENT.get_console_output(InstanceId=instance_id)
+                
+                if 'Output' in response:
+                    output = response['Output']
+                    
+                    if 'Sysbench benchmark completed' in output:
+                        print(f'- Instance {instance_id} - sysbench completed!')
+                        completed.add(instance_id)
+                    else:
+                        if 'Running sysbench' in output:
+                            print(f'  Instance {instance_id} - sysbench is running...')
+                        elif 'Installing sysbench' in output:
+                            print(f'  Instance {instance_id} - installing sysbench...')
+                        else:
+                            print(f'  Instance {instance_id} - initializing...')
+                else:
+                    print(f'  Instance {instance_id} - no console output yet')
+                    
+            except Exception as e:
+                print(f'  Instance {instance_id} - error checking status: {e}')
+        
+        if len(completed) < len(instance_ids):
+            remaining_time = timeout - elapsed
+            print(f'- Progress: {len(completed)}/{len(instance_ids)} completed | '
+                  f'Elapsed: {elapsed:.0f}s | Remaining timeout: {remaining_time:.0f}s')
+            time.sleep(check_interval)
+    
+    total_time = time.time() - start_time
+    print(f'\n- All instances completed sysbench in {total_time:.0f} seconds ({total_time/60:.1f} minutes)')
 
 
 """
@@ -864,14 +947,11 @@ def main():
     associateRouteTable(public_route_table_id, public_subnet_id)
     associateRouteTable(private_route_table_id, private_subnet_id)
 
-    bucket_name = f'mysql-cluster-sysbench-{int(time.time())}'
-
     manager_ids, manager_ips = create_manager_instances(
         nbrInstances=1,
         vpcId=vpc_id,
         subnetId=private_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR,
-        bucket_name=bucket_name
     )
     
     worker_ids, worker_ips = create_worker_instances(
@@ -880,7 +960,6 @@ def main():
         subnetId=private_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR,
         manager_ip=manager_ips[0],
-        bucket_name=bucket_name
     )
 
     proxy_id, proxy_ip = create_proxy_instance(
@@ -915,8 +994,15 @@ def main():
     print('*'*50 + '\n')
 
     print('*'*16 + ' BENCHMARKING ' + '*'*20)
-    print('-Waiting for 4min so the instances are ready...')
-    time.sleep(240)
+
+    print('- Waiting for the sysbench to finish...')
+
+    all_instance_ids = manager_ids + worker_ids
+    instance_names = ['manager'] + [f'worker-{i+1}' for i in range(len(worker_ids))]
+
+    wait_for_sysbench_completion( all_instance_ids, timeout=900)
+
+    fetch_sysbench_results(all_instance_ids, instance_names)
 
     benchmark_cluster(
         gatekeeper_ip=gatekeeper_public_ip,
@@ -924,12 +1010,17 @@ def main():
         worker_ips=worker_ips,
         api_key="test-api-key"
     )
+
     print('*'*50 + '\n')
 
     print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)
-    print('-Cleanup will start in 2min...')
+
+    print('- Cleanup will start in 2min...')
+
     time.sleep(120)
+
     cleanup_all_resources(EC2_CLIENT, vpc_id=vpc_id)
+
     print('*'*50 + '\n')
 
 
