@@ -1,48 +1,68 @@
 import requests
+import subprocess
 import time
 import os
 
 
-def send_request(url, headers, query, strategy, results_dict):
+"""
+Strategies Benchmarking
+"""
+def send_http_request(url, headers, query, strategy, results):
     try:
-        request_start = time.time()
+        start = time.time()
         response = requests.post(
             url,
             headers=headers,
             json={'query': query, 'strategy': strategy},
             timeout=30
         )
-        request_time = time.time() - request_start
+        elapsed = time.time() - start
         
         if response.status_code == 200:
-            results_dict['success'] += 1
+            results['success'] += 1
             data = response.json()
-            results_dict['responses'].append({
+            results['responses'].append({
                 'host': data.get('host', 'unknown'),
-                'time': request_time
+                'time': elapsed
             })
         else:
-            results_dict['failed'] += 1
+            results['failed'] += 1
     except Exception as e:
-        results_dict['failed'] += 1
-        print(f'  Error: {str(e)}')
+        results['failed'] += 1
+        print(f'- Error: {str(e)}')
 
 
-def generate_report(results, strategies, gatekeeper_ip, ip_to_role):
-    filename = "results/benchmark_result.txt"
+def execute_strategy_requests(url, headers, query, strategy, request_type, count=1000):
+    print(f'- Sending {count} {request_type} requests...')
+    
+    results = {'success': 0, 'failed': 0, 'total_time': 0, 'responses': []}
+    start = time.time()
+    
+    for i in range(count):
+        send_http_request(url, headers, query, strategy, results)
+        if (i + 1) % 100 == 0:
+            print(f'  - {i + 1}/{count} completed')
+    
+    results['total_time'] = time.time() - start
+    print(f"- {request_type} - Success: {results['success']}/{count}, Time: {results['total_time']:.2f}s")
+    
+    return results
+
+
+def save_benchmark_report(results, strategies, gatekeeper_ip, ip_to_role):
     os.makedirs('results', exist_ok=True)
-
-    with open(filename, 'w') as f:
+    
+    with open("results/benchmark_result.txt", 'w') as f:
         f.write(f"Benchmark Results - Gatekeeper: {gatekeeper_ip}\n")
         f.write("-" * 50 + "\n")
         
         for strategy in strategies:
-            s_data = results['strategies'][strategy]
-            read_avg = s_data['read']['total_time'] / 1000
-            write_avg = s_data['write']['total_time'] / 1000
+            data = results['strategies'][strategy]
+            read_avg = data['read']['total_time'] / 1000
+            write_avg = data['write']['total_time'] / 1000
             f.write(f"Strategy: {strategy.upper()}\n")
-            f.write(f"  READ  - Success: {s_data['read']['success']}, Avg: {read_avg:.4f}s\n")
-            f.write(f"  WRITE - Success: {s_data['write']['success']}, Avg: {write_avg:.4f}s\n\n")
+            f.write(f"  READ  - Success: {data['read']['success']}, Avg: {read_avg:.4f}s\n")
+            f.write(f"  WRITE - Success: {data['write']['success']}, Avg: {write_avg:.4f}s\n\n")
 
         f.write("Host Distribution (READ):\n")
         for strategy in strategies:
@@ -52,63 +72,117 @@ def generate_report(results, strategies, gatekeeper_ip, ip_to_role):
                 role = ip_to_role.get(ip, ip)
                 hosts[role] = hosts.get(role, 0) + 1
             f.write(f"  {strategy.upper()}: {hosts}\n")
+    
+    print('- Benchmark saved to results/benchmark_result.txt')
 
 
-def benchmark_cluster(gatekeeper_ip: str, manager_ip: str, worker_ips: list, api_key: str = "blah-blah"):
+def run_cluster_benchmark(gatekeeper_ip, manager_ip, worker_ips, api_key="test-api-key"):
     ip_to_role = {manager_ip: 'manager'}
-    for idx, worker_ip in enumerate(worker_ips, 1):
-        ip_to_role[worker_ip] = f'worker-{idx}'
+    for idx, ip in enumerate(worker_ips, 1):
+        ip_to_role[ip] = f'worker-{idx}'
     
-    gatekeeper_url = f'http://{gatekeeper_ip}:8080/query'
+    url = f'http://{gatekeeper_ip}:8080/query'
     headers = {'Content-Type': 'application/json', 'X-API-Key': api_key}
-    
     read_query = "SELECT * FROM actor LIMIT 10"
     write_query = "INSERT INTO actor (first_name, last_name, last_update) VALUES ('Benchmark', 'Test', NOW())"
     strategies = ['direct', 'random', 'customized']
-    
     results = {'strategies': {}}
 
     for strategy in strategies:
-        print(f'\n- Testing strategy: {strategy.upper()}')
+        print(f'\n- Testing {strategy.upper()} strategy')
         
-        strategy_results = {
-            'read': {'success': 0, 'failed': 0, 'total_time': 0, 'responses': []},
-            'write': {'success': 0, 'failed': 0, 'total_time': 0, 'responses': []}
+        read_results = execute_strategy_requests(url, headers, read_query, strategy, 'READ')
+        write_results = execute_strategy_requests(url, headers, write_query, strategy, 'WRITE')
+        
+        results['strategies'][strategy] = {
+            'read': read_results,
+            'write': write_results
         }
-        
-        print(f'- Sending 1000 READ requests with {strategy} strategy...')
-        read_start_time = time.time()
-        for i in range(1000):
-            send_request(gatekeeper_url, headers, read_query, strategy, strategy_results['read'])
-            if (i + 1) % 100 == 0:
-                print(f'  Progress: {i + 1}/1000 READ requests completed')
-        strategy_results['read']['total_time'] = time.time() - read_start_time
 
-        print('\n-  READ Results:')
-        print(f'    - Successful: {strategy_results["read"]["success"]}/1000')
-        print(f'    - Failed: {strategy_results["read"]["failed"]}/1000')
-        print(f'    - Total Time: {strategy_results["read"]["total_time"]:.2f}s')
-        print(f'    - Average Time per Request: {strategy_results["read"]["total_time"]/1000:.4f}s')
-
-        print(f'\n  Sending 1000 WRITE requests with {strategy} strategy...')
-        write_start_time = time.time()
-        for i in range(1000):
-            send_request(gatekeeper_url, headers, write_query, strategy, strategy_results['write'])
-            if (i + 1) % 100 == 0:
-                print(f'  Progress: {i + 1}/1000 WRITE requests completed')
-        strategy_results['write']['total_time'] = time.time() - write_start_time
-
-        print('\n-  WRITE Results:')
-        print(f'    - Successful: {strategy_results["write"]["success"]}/1000')
-        print(f'    - Failed: {strategy_results["write"]["failed"]}/1000')
-        print(f'    - Total Time: {strategy_results["write"]["total_time"]:.2f}s')
-        print(f'    - Average Time per Request: {strategy_results["write"]["total_time"]/1000:.4f}s')
-        
-        results['strategies'][strategy] = strategy_results
-        print(f'-  Strategy {strategy.upper()} completed!')
-
-    generate_report(results, strategies, gatekeeper_ip, ip_to_role)
-    print('\n- Benchmark results saved to benchmark_result.txt')
-
+    save_benchmark_report(results, strategies, gatekeeper_ip, ip_to_role)
     return results
 
+
+"""
+MySQL Sysbench
+"""
+def run_ssh_command(host, command, key_path, user='ubuntu', timeout=30):
+    try:
+        cmd = [
+            'ssh', '-i', key_path,
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            '-o', f'ConnectTimeout={timeout}',
+            f'{user}@{host}', command
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        return result.returncode, result.stdout, result.stderr
+    except:
+        return -1, '', 'Command failed'
+
+
+def copy_file_via_scp(local_path, remote_host, remote_path, key_path, user='ubuntu'):
+    try:
+        cmd = [
+            'scp', '-i', key_path,
+            '-o', 'StrictHostKeyChecking=no',
+            '-o', 'UserKnownHostsFile=/dev/null',
+            local_path, f'{user}@{remote_host}:{remote_path}'
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+    except:
+        return False
+
+
+def setup_ssh_key_on_gatekeeper(gatekeeper_ip, key_path):
+    print('- Copying SSH key to gatekeeper')
+    if not copy_file_via_scp(key_path, gatekeeper_ip, '~/mysql-cluster-key.pem', key_path):
+        print('- ERROR: Failed to copy SSH key')
+        return False
+    
+    returncode, _, stderr = run_ssh_command(gatekeeper_ip, 'chmod 400 ~/mysql-cluster-key.pem', key_path)
+    if returncode != 0:
+        print(f'- ERROR: Failed to set permissions: {stderr}')
+        return False
+    
+    return True
+
+
+def collect_node_sysbench(gatekeeper_ip, node_name, node_ip, key_path, results_dir):
+    print(f'- Collecting from {node_name.upper()} ({node_ip})')
+    
+    cmd = f'ssh -i ~/mysql-cluster-key.pem -o StrictHostKeyChecking=no ubuntu@{node_ip} "cat /tmp/sysbench_results.txt"'
+    returncode, stdout, _ = run_ssh_command(gatekeeper_ip, cmd, key_path, timeout=30)
+    
+    if returncode != 0 or not stdout.strip():
+        print('- No results found, trying log...')
+        cmd = f'ssh -i ~/mysql-cluster-key.pem -o StrictHostKeyChecking=no ubuntu@{node_ip} "grep -A 100 \\"Running sysbench benchmark\\" /var/log/user-data.log"'
+        returncode, stdout, _ = run_ssh_command(gatekeeper_ip, cmd, key_path, timeout=30)
+        if returncode != 0:
+            print('- ERROR: Could not retrieve results')
+            return False
+    
+    results_file = os.path.join(results_dir, f'{node_name}_sysbench_results.txt')
+    with open(results_file, 'w') as f:
+        f.write(stdout)
+    print(f'- Saved to: {results_file}')
+    return True
+
+
+def collect_sysbench(gatekeeper_ip, manager_ip, worker_ips, key_path):
+    print('\n- Collecting sysbench results')
+    
+    if not setup_ssh_key_on_gatekeeper(gatekeeper_ip, key_path):
+        return False
+    
+    results_dir = 'results/'
+    os.makedirs(results_dir, exist_ok=True)
+    
+    all_nodes = {'manager': manager_ip, **{f'worker-{i+1}': ip for i, ip in enumerate(worker_ips)}}
+    
+    for node_name, node_ip in all_nodes.items():
+        collect_node_sysbench(gatekeeper_ip, node_name, node_ip, key_path, results_dir)
+    
+    print(f'- All sysbench results saved to: {results_dir}')
+    return True
