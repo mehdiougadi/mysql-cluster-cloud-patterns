@@ -43,7 +43,7 @@ systemctl restart mysql
 
 sleep 10
 
-MANAGER_HOST="{MANAGER_HOST}"
+MANAGER_HOST="__MANAGER_HOST__"
 MAX_RETRIES=30
 RETRY_COUNT=0
 
@@ -63,13 +63,7 @@ if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     exit 1
 fi
 
-echo "Fetching master status from ${MANAGER_HOST}..."
-MASTER_STATUS=$(mysql -h ${MANAGER_HOST} -u replication_user -pRepl123! -e "SHOW MASTER STATUS\G" 2>/dev/null)
-MASTER_LOG_FILE=$(echo "$MASTER_STATUS" | grep "File:" | awk '{print $2}')
-MASTER_LOG_POS=$(echo "$MASTER_STATUS" | grep "Position:" | awk '{print $2}')
-
-echo "Master log file: ${MASTER_LOG_FILE}, position: ${MASTER_LOG_POS}"
-
+echo "Setting up replication from beginning of binlog..."
 mysql -u root -pRoot123! <<REPLICATION_SETUP
 STOP SLAVE;
 RESET SLAVE ALL;
@@ -77,8 +71,8 @@ CHANGE MASTER TO
   MASTER_HOST='${MANAGER_HOST}',
   MASTER_USER='replication_user',
   MASTER_PASSWORD='Repl123!',
-  MASTER_LOG_FILE='${MASTER_LOG_FILE}',
-  MASTER_LOG_POS=${MASTER_LOG_POS};
+  MASTER_LOG_FILE='mysql-bin.000001',
+  MASTER_LOG_POS=4;
 START SLAVE;
 REPLICATION_SETUP
 
@@ -116,7 +110,7 @@ sysbench /usr/share/sysbench/oltp_read_only.lua \
     --mysql-db=sakila \
     --mysql-user=app_user \
     --mysql-password=Mehdi1603! \
-    run
+    run > /tmp/sysbench_results.txt 2>&1
 
 echo "Sysbench benchmark completed"
 

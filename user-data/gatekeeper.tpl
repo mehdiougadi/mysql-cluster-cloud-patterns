@@ -27,7 +27,7 @@ import os
 
 app = Flask(__name__)
 
-PROXY_HOST = '{PROXY_HOST}'
+PROXY_HOST = '__PROXY_HOST__'
 PROXY_PORT = 5000
 PROXY_URL = f'http://{PROXY_HOST}:{PROXY_PORT}/query'
 

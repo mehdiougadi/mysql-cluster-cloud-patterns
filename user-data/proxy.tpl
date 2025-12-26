@@ -31,8 +31,8 @@ import threading
 app = Flask(__name__)
 
 DB_CONFIG = {
-    'manager_host': '{MANAGER_HOST}',
-    'worker_hosts': '{WORKER_HOSTS}'.split(','),
+    'manager_host': '__MANAGER_HOST__',
+    'worker_hosts': '__WORKER_HOSTS__'.split(','),
     'user': 'app_user',
     'password': 'Mehdi1603!',
     'database': 'sakila'

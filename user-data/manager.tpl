@@ -22,7 +22,7 @@ ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'Root123!
 CREATE USER 'app_user'@'%' IDENTIFIED BY 'Mehdi1603!';
 GRANT ALL PRIVILEGES ON *.* TO 'app_user'@'%';
 CREATE USER 'replication_user'@'%' IDENTIFIED BY 'Repl123!';
-GRANT REPLICATION SLAVE ON *.* TO 'replication_user'@'%';
+GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'replication_user'@'%';
 FLUSH PRIVILEGES;
 MYSQL_SETUP
 
@@ -68,7 +68,7 @@ sysbench /usr/share/sysbench/oltp_read_only.lua \
     --mysql-db=sakila \
     --mysql-user=app_user \
     --mysql-password=Mehdi1603! \
-    run
+    run > /tmp/sysbench_results.txt 2>&1
 
 echo "Sysbench benchmark completed"
 
