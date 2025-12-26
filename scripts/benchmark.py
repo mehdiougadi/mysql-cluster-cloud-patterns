@@ -1,7 +1,9 @@
+import matplotlib.pyplot as plt
 import requests
 import subprocess
 import time
 import os
+import re
 
 
 """
@@ -114,6 +116,39 @@ def run_cluster_benchmark(gatekeeper_ip, manager_ip, worker_ips, api_key="test-a
     return results
 
 
+def visualize_cluster_benchmark(results, strategies):
+    results_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'results')
+    os.makedirs(results_dir, exist_ok=True)
+    
+    read_times = [results['strategies'][s]['read']['total_time'] / 1000 for s in strategies]
+    write_times = [results['strategies'][s]['write']['total_time'] / 1000 for s in strategies]
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    x = range(len(strategies))
+    width = 0.35
+    
+    ax.bar([i - width/2 for i in x], read_times, width, label='READ', color='blue')
+    ax.bar([i + width/2 for i in x], write_times, width, label='WRITE', color='red')
+    
+    ax.set_xlabel('Strategy')
+    ax.set_ylabel('Average Time (seconds)')
+    ax.set_title('Benchmark: Response Time by Strategy')
+    ax.set_xticks(x)
+    ax.set_xticklabels([s.upper() for s in strategies])
+    ax.legend()
+    ax.grid(axis='y', alpha=0.3)
+    
+    for i, (r, w) in enumerate(zip(read_times, write_times)):
+        ax.text(i - width/2, r, f'{r:.4f}s', ha='center', va='bottom')
+        ax.text(i + width/2, w, f'{w:.4f}s', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_dir, 'benchmark_chart.png'), dpi=150)
+    print('\n- Chart saved: results/benchmark_chart.png')
+    plt.close()
+
+
 """
 MySQL Sysbench
 """
@@ -198,3 +233,41 @@ def collect_sysbench(gatekeeper_ip, manager_ip, worker_ips, key_path):
     
     print('- All sysbench results are available')
     return True
+
+
+def visualize_sysbench_results():
+    results_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'results')
+    
+    nodes_data = {}
+    for filename in os.listdir(results_dir):
+        if filename.endswith('_sysbench_results.txt'):
+            node_name = filename.replace('_sysbench_results.txt', '')
+            
+            with open(os.path.join(results_dir, filename), 'r') as f:
+                content = f.read()
+                match = re.search(r'transactions:\s+\d+\s+\(([\d.]+)\s+per sec', content)
+                if match:
+                    nodes_data[node_name] = float(match.group(1))
+    
+    if not nodes_data:
+        print('- No sysbench results found')
+        return
+    
+    fig, ax = plt.subplots(figsize=(10, 6))
+    
+    nodes = sorted(nodes_data.keys())
+    values = [nodes_data[n] for n in nodes]
+    
+    ax.bar(nodes, values, color='green')
+    ax.set_xlabel('Node')
+    ax.set_ylabel('Transactions Per Second')
+    ax.set_title('Sysbench: Performance by Node')
+    ax.grid(axis='y', alpha=0.3)
+    
+    for i, (node, val) in enumerate(zip(nodes, values)):
+        ax.text(i, val, f'{val:.1f}', ha='center', va='bottom')
+    
+    plt.tight_layout()
+    plt.savefig(os.path.join(results_dir, 'sysbench_chart.png'), dpi=150)
+    print(f'\n- Chart saved: results/sysbench_chart.png')
+    plt.close()

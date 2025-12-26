@@ -5,7 +5,7 @@ import sys
 import re
 import os
 from cleanup import cleanup_all_resources
-from benchmark import run_cluster_benchmark, collect_sysbench
+from benchmark import run_cluster_benchmark, collect_sysbench, visualize_cluster_benchmark, visualize_sysbench_results
 
 
 """
@@ -995,12 +995,17 @@ def main():
         key_path=key_path
     )
 
-    run_cluster_benchmark(
+    results = run_cluster_benchmark(
         gatekeeper_ip=gatekeeper_public_ip,
         manager_ip=manager_ips[0],
         worker_ips=worker_ips,
         api_key="test-api-key"
     )
+
+    strategies = ['direct', 'random', 'customized']
+
+    visualize_sysbench_results()
+    visualize_cluster_benchmark(results, strategies)
 
     print('*'*50 + '\n')
 
