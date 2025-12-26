@@ -2,9 +2,10 @@ import boto3
 import time
 import configparser
 import sys
+import re
 import os
 from cleanup import cleanup_all_resources
-from benchmark import benchmark_cluster
+from benchmark import run_cluster_benchmark, collect_sysbench
 
 
 """
@@ -104,13 +105,25 @@ def read_user_data(filename: str, **kwargs) -> str:
         with open(filepath, 'r') as f:
             template = f.read()
         
+        replaced_placeholders = []
+        
         for key, value in kwargs.items():
-            placeholder = f'{{{key.upper()}}}'
-            template = template.replace(placeholder, str(value))
+            placeholder = f'__{key.upper()}__'
+            if placeholder in template:
+                template = template.replace(placeholder, str(value))
+                replaced_placeholders.append(placeholder)
+            else:
+                print(f'- WARNING: Placeholder {placeholder} not found in {filename}')
+    
+        remaining = re.findall(r'__[A-Z_]+__', template)
+        if remaining:
+            print(f'- WARNING: Unreplaced placeholders in {filename}: {remaining}')
+        
+        print(f'- Replaced placeholders in {filename}: {replaced_placeholders}')
         
         return template
     except Exception as e:
-        print(f'- error reading user data file {filepath}: {e}')
+        print(f'- Error reading user data file {filepath}: {e}')
         sys.exit(1)
 
 
@@ -436,7 +449,8 @@ def createEC2Instance(
     instance_name='instance',
     security_group_id=None,
     user_data=None,
-    count=1
+    key_name=None, 
+    count=1,
 ):
     try:
         print(f'- Creating {count} EC2 instance(s): {instance_name}')
@@ -454,6 +468,9 @@ def createEC2Instance(
         
         if user_data:
             run_params['UserData'] = user_data
+
+        if key_name:
+            run_params['KeyName'] = key_name
         
         response = EC2_CLIENT.run_instances(**run_params)
         
@@ -480,10 +497,47 @@ def createEC2Instance(
         sys.exit(1)
 
 
+def create_or_get_key_pair(key_name='mysql-cluster-key'):
+    try:
+        print(f'- Checking for existing key pair: {key_name}')
+        
+        try:
+            response = EC2_CLIENT.describe_key_pairs(KeyNames=[key_name])
+            print(f'- Key pair {key_name} already exists')
+            
+            pem_path = f'{key_name}.pem'
+            if not os.path.exists(pem_path):
+                print(f'- WARNING: Key pair exists in AWS but {pem_path} not found locally!')
+            else:
+                print(f'- Local key file found: {pem_path}')
+            
+            return key_name, pem_path
+            
+        except EC2_CLIENT.exceptions.ClientError:
+            print(f'- Creating new key pair: {key_name}')
+            
+            response = EC2_CLIENT.create_key_pair(KeyName=key_name)
+            
+            pem_path = f'{key_name}.pem'
+            with open(pem_path, 'w') as f:
+                f.write(response['KeyMaterial'])
+
+            if os.name != 'nt':
+                os.chmod(pem_path, 0o400)
+            
+            print(f'- Key pair created and saved to: {pem_path}')
+            
+            return key_name, pem_path
+            
+    except Exception as e:
+        print(f'- Failed to create/get key pair: {e}')
+        sys.exit(1)
+
+
 """
     MySQL Standalone and Sakila
 """
-def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str) -> tuple[list[str], list[str]]:
+def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, public_subnet_cidr: str, key_name: str) -> tuple[list[str], list[str]]:
     print(f'- creating {nbrInstances} new manager instances')
 
     ingress = [
@@ -493,6 +547,13 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
             'ToPort': 3306,
             'CidrIp': private_subnet_cidr,
             'Description': 'MySQL access from Proxy for WRITE queries'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': public_subnet_cidr,
+            'Description': 'SSH access from Gatekeeper for management'
         },
         {
             'IpProtocol': 'icmp',
@@ -543,7 +604,8 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
         instance_name='mysql-manager',
         security_group_id=sgId,
         user_data=userData,
-        count=1
+        count=1,
+        key_name=key_name
     )
     
     wait_for_instance_running(instancesId)
@@ -556,7 +618,7 @@ def create_manager_instances(nbrInstances: int, vpcId: str, subnetId: str, priva
     return instancesId, instance_ips
 
 
-def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, manager_ip: str) -> tuple[list[str], list[str]]:
+def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, private_subnet_cidr: str, public_subnet_cidr: str, manager_ip: str, key_name: str) -> tuple[list[str], list[str]]:
     print(f'- creating {nbrInstances} new worker instances')
 
     ingress = [
@@ -566,6 +628,13 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
             'ToPort': 3306,
             'CidrIp': private_subnet_cidr,
             'Description': 'MySQL access from Proxy for READ queries'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': public_subnet_cidr,
+            'Description': 'SSH access from Gatekeeper for management'
         },
         {
             'IpProtocol': 'icmp',
@@ -616,7 +685,8 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
         instance_name='mysql-worker',
         security_group_id=sgId,
         user_data=userData,
-        count=nbrInstances
+        count=nbrInstances,
+        key_name=key_name
     )
     
     wait_for_instance_running(instancesId)
@@ -627,105 +697,6 @@ def create_worker_instances(nbrInstances: int, vpcId: str, subnetId: str, privat
     print(f'- Worker IPs: {instance_ips}')
     
     return instancesId, instance_ips
-
-
-def fetch_sysbench_results(instance_ids, instance_names):
-    print('- Fetching sysbench results from EC2 console output...')
-
-    os.makedirs('results', exist_ok=True)
-    
-    all_results = []
-    
-    for instance_id, instance_name in zip(instance_ids, instance_names):
-        print(f'- Checking {instance_name} ({instance_id})...')
-        
-        try:
-            response = EC2_CLIENT.get_console_output(InstanceId=instance_id)
-            
-            if 'Output' in response:
-                console_output = response['Output']
-                
-                local_file = f'results/sysbench-{instance_name}.txt'
-                with open(local_file, 'w', encoding='utf-8') as f:
-                    f.write(console_output)
-                
-                print(f'- Results saved to {local_file}')
-                all_results.append(f'=== {instance_name} ({instance_id}) ===\n{console_output}\n')
-            else:
-                print('- No console output available yet')
-                
-        except Exception as e:
-            print(f'- Error: {e}')
-    
-    if all_results:
-        with open('results/sysbench_all_results.txt', 'w', encoding='utf-8') as f:
-            f.write('\n'.join(all_results))
-        print('- All results saved to results/sysbench_all_results.txt')
-    else:
-        print('- No results to save')
-
-
-def wait_for_sysbench_completion(instance_ids, timeout=600):
-    print(f'- Waiting for sysbench to complete on {len(instance_ids)} instance(s)...')
-    print(f'- Timeout set to {timeout} seconds ({timeout//60} minutes)')
-    
-    start_time = time.time()
-    completed = set()
-    last_check_times = {iid: 0 for iid in instance_ids}
-    check_interval = 30
-    
-    while len(completed) < len(instance_ids):
-        elapsed = time.time() - start_time
-        
-        if elapsed > timeout:
-            print(f'\n- Timeout reached after {elapsed:.0f} seconds')
-            print(f'- Completed: {len(completed)}/{len(instance_ids)} instances')
-            if completed:
-                print(f'- Completed instances: {list(completed)}')
-            remaining = set(instance_ids) - completed
-            if remaining:
-                print(f'- Still waiting for: {list(remaining)}')
-            return
-        
-        for instance_id in instance_ids:
-            if instance_id in completed:
-                continue
-            
-            if time.time() - last_check_times[instance_id] < check_interval:
-                continue
-            
-            last_check_times[instance_id] = time.time()
-            
-            try:
-                response = EC2_CLIENT.get_console_output(InstanceId=instance_id)
-                
-                if 'Output' in response:
-                    output = response['Output']
-                    
-                    if 'Sysbench benchmark completed' in output:
-                        print(f'- Instance {instance_id} - sysbench completed!')
-                        completed.add(instance_id)
-                    else:
-                        if 'Running sysbench' in output:
-                            print(f'  Instance {instance_id} - sysbench is running...')
-                        elif 'Installing sysbench' in output:
-                            print(f'  Instance {instance_id} - installing sysbench...')
-                        else:
-                            print(f'  Instance {instance_id} - initializing...')
-                else:
-                    print(f'  Instance {instance_id} - no console output yet')
-                    
-            except Exception as e:
-                print(f'  Instance {instance_id} - error checking status: {e}')
-        
-        if len(completed) < len(instance_ids):
-            remaining_time = timeout - elapsed
-            print(f'- Progress: {len(completed)}/{len(instance_ids)} completed | '
-                  f'Elapsed: {elapsed:.0f}s | Remaining timeout: {remaining_time:.0f}s')
-            time.sleep(check_interval)
-    
-    total_time = time.time() - start_time
-    print(f'\n- All instances completed sysbench in {total_time:.0f} seconds ({total_time/60:.1f} minutes)')
 
 
 """
@@ -808,7 +779,7 @@ def create_proxy_instance(vpcId: str, subnetId: str, public_subnet_cidr: str, pr
 """
     Gatekeeper
 """
-def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: str, proxy_ip: str) -> tuple[str, str]:
+def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: str, proxy_ip: str, key_name: str) -> tuple[str, str]:
     print('- Creating Gatekeeper instance')
     
     ingress = [
@@ -863,6 +834,13 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
             'ToPort': 5000,
             'CidrIp': private_subnet_cidr,
             'Description': 'Forwarding validated requests to Proxy'
+        },
+        {
+            'IpProtocol': 'tcp',
+            'FromPort': 22,
+            'ToPort': 22,
+            'CidrIp': private_subnet_cidr,
+            'Description': 'SSH to private instances for management'
         }
     ]
 
@@ -882,7 +860,8 @@ def create_gatekeeper_instance(vpcId: str, subnetId: str, private_subnet_cidr: s
         instance_name='gatekeeper',
         security_group_id=sgId,
         user_data=userData,
-        count=1
+        count=1,
+        key_name=key_name
     )
     
     wait_for_instance_running(instancesId)
@@ -902,6 +881,7 @@ def main():
     setBoto3Clients()
     print('*'*50 + '\n')
 
+
     VPC_CIDR = '10.0.0.0/16'
     PUBLIC_SUBNET_CIDR = '10.0.1.0/24'
     PRIVATE_SUBNET_CIDR = '10.0.2.0/24'
@@ -909,6 +889,7 @@ def main():
 
 
     print('*'*16 + ' CREATION INFRA ' + '*'*18)
+    key_name, key_path = create_or_get_key_pair('mysql-cluster-key')
     vpc_id = createVPC(cidr_block=VPC_CIDR, vpc_name='mysql-cluster-vpc')
 
     public_subnet_id = createSubnet(
@@ -952,6 +933,8 @@ def main():
         vpcId=vpc_id,
         subnetId=private_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR,
+        public_subnet_cidr=PUBLIC_SUBNET_CIDR,
+        key_name=key_name
     )
     
     worker_ids, worker_ips = create_worker_instances(
@@ -959,7 +942,9 @@ def main():
         vpcId=vpc_id,
         subnetId=private_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR,
+        public_subnet_cidr=PUBLIC_SUBNET_CIDR,
         manager_ip=manager_ips[0],
+        key_name=key_name
     )
 
     proxy_id, proxy_ip = create_proxy_instance(
@@ -975,7 +960,8 @@ def main():
         vpcId=vpc_id,
         subnetId=public_subnet_id,
         private_subnet_cidr=PRIVATE_SUBNET_CIDR,
-        proxy_ip=proxy_ip
+        proxy_ip=proxy_ip,
+        key_name=key_name
     )
 
     print('*'*50 + '\n')
@@ -995,16 +981,18 @@ def main():
 
     print('*'*16 + ' BENCHMARKING ' + '*'*20)
 
-    print('- Waiting for the sysbench to finish...')
+    print('- Waiting 3 min for the sysbench to finish...')
 
-    all_instance_ids = manager_ids + worker_ids
-    instance_names = ['manager'] + [f'worker-{i+1}' for i in range(len(worker_ids))]
+    time.sleep(180)
 
-    wait_for_sysbench_completion( all_instance_ids, timeout=900)
+    collect_sysbench(
+        gatekeeper_ip=gatekeeper_public_ip,
+        manager_ip=manager_ips[0],
+        worker_ips=worker_ips,
+        key_path=key_path
+    )
 
-    fetch_sysbench_results(all_instance_ids, instance_names)
-
-    benchmark_cluster(
+    run_cluster_benchmark(
         gatekeeper_ip=gatekeeper_public_ip,
         manager_ip=manager_ips[0],
         worker_ips=worker_ips,
@@ -1018,8 +1006,7 @@ def main():
     print('- Cleanup will start in 2min...')
 
     time.sleep(120)
-
-    cleanup_all_resources(EC2_CLIENT, vpc_id=vpc_id)
+    cleanup_all_resources(EC2_CLIENT, vpc_id=vpc_id, key_name=key_name)
 
     print('*'*50 + '\n')
 
