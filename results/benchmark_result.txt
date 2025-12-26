@@ -1,18 +1,18 @@
-Benchmark Results - Gatekeeper: 54.196.111.106
+Benchmark Results - Gatekeeper: 54.198.179.36
 --------------------------------------------------
 Strategy: DIRECT
-  READ  - Success: 1000, Avg: 0.0685s
-  WRITE - Success: 1000, Avg: 0.0744s
+  READ  - Success: 1000, Avg: 0.0710s
+  WRITE - Success: 1000, Avg: 0.0755s
 
 Strategy: RANDOM
-  READ  - Success: 1000, Avg: 0.0690s
-  WRITE - Success: 1000, Avg: 0.0742s
+  READ  - Success: 1000, Avg: 0.0712s
+  WRITE - Success: 1000, Avg: 0.0761s
 
 Strategy: CUSTOMIZED
-  READ  - Success: 1000, Avg: 0.0686s
-  WRITE - Success: 1000, Avg: 0.0746s
+  READ  - Success: 1000, Avg: 0.0719s
+  WRITE - Success: 1000, Avg: 0.0766s
 
 Host Distribution (READ):
   DIRECT: {'manager': 1000}
-  RANDOM: {'worker-2': 479, 'worker-1': 521}
-  CUSTOMIZED: {'worker-2': 794, 'worker-1': 206}
+  RANDOM: {'worker-2': 470, 'worker-1': 530}
+  CUSTOMIZED: {'worker-2': 810, 'worker-1': 190}
