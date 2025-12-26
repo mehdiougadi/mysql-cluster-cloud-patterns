@@ -1,4 +1,5 @@
 import sys
+import os
 
 
 def delete_ec2_instances(ec2_client, vpc_id):
@@ -185,6 +186,29 @@ def delete_security_groups(ec2_client, vpc_id):
         print(f'- Error deleting security groups: {e}')
 
 
+def delete_key_pair(ec2_client, key_name):
+    try:
+        print(f'- Deleting key pair: {key_name}')
+        
+        ec2_client.delete_key_pair(KeyName=key_name)
+        print(f'- Key pair {key_name} deleted from AWS')
+        
+        pem_path = f'{key_name}.pem'
+        if os.path.exists(pem_path):
+            os.remove(pem_path)
+            print(f'- Local key file {pem_path} deleted')
+        else:
+            print(f'- Local key file {pem_path} not found (already deleted?)')
+            
+    except ec2_client.exceptions.ClientError as e:
+        if 'InvalidKeyPair.NotFound' in str(e):
+            print(f'- Key pair {key_name} not found in AWS (already deleted?)')
+        else:
+            print(f'- Error deleting key pair: {e}')
+    except Exception as e:
+        print(f'- Error deleting key pair: {e}')
+
+
 def delete_vpc(ec2_client, vpc_id):
     try:
         print(f'- Deleting VPC: {vpc_id}')
@@ -195,7 +219,7 @@ def delete_vpc(ec2_client, vpc_id):
         print(f'- Error deleting VPC: {e}')
 
 
-def cleanup_all_resources(ec2_client, vpc_id=None, vpc_name=None):
+def cleanup_all_resources(ec2_client, vpc_id=None, vpc_name=None, key_name=None):
     try:
         if vpc_name and not vpc_id:
             print(f'- Searching for VPC with name: {vpc_name}')
@@ -222,6 +246,9 @@ def cleanup_all_resources(ec2_client, vpc_id=None, vpc_name=None):
         delete_route_tables(ec2_client, vpc_id)
         delete_security_groups(ec2_client, vpc_id)
         delete_vpc(ec2_client, vpc_id)
+
+        if key_name:
+            delete_key_pair(ec2_client, key_name)
         
         print(f'- Cleanup completed successfully for VPC: {vpc_id}')
         
