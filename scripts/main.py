@@ -101,7 +101,10 @@ def setBoto3Clients():
 """
 def read_user_data(filename: str, **kwargs) -> str:
     try:
-        filepath = os.path.join('user-data', filename)
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(script_dir)
+        filepath = os.path.join(project_root, 'user-data', filename)
+
         with open(filepath, 'r') as f:
             template = f.read()
         
@@ -1003,7 +1006,7 @@ def main():
 
     print('*'*16 + ' CLEANUP SCRIPT ' + '*'*18)
 
-    print('- Cleanup will start in 2min...')
+    print('- Cleanup will start in 2 min...')
 
     time.sleep(120)
     cleanup_all_resources(EC2_CLIENT, vpc_id=vpc_id, key_name=key_name)

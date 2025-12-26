@@ -33,15 +33,21 @@ def send_http_request(url, headers, query, strategy, results):
 
 
 def execute_strategy_requests(url, headers, query, strategy, request_type, count=1000):
-    print(f'- Sending {count} {request_type} requests...')
+    import sys
+    
+    print(f'- Sending {count} {request_type} requests')
     
     results = {'success': 0, 'failed': 0, 'total_time': 0, 'responses': []}
     start = time.time()
     
     for i in range(count):
         send_http_request(url, headers, query, strategy, results)
-        if (i + 1) % 100 == 0:
-            print(f'  - {i + 1}/{count} completed')
+        
+
+        sys.stdout.write(f'\r  Currently at {i + 1}/{count} requests (Success: {results["success"]}/{i + 1})')
+        sys.stdout.flush()
+    
+    sys.stdout.write('\r' + ' ' * 80 + '\r')
     
     results['total_time'] = time.time() - start
     print(f"- {request_type} - Success: {results['success']}/{count}, Time: {results['total_time']:.2f}s")
@@ -50,9 +56,14 @@ def execute_strategy_requests(url, headers, query, strategy, request_type, count
 
 
 def save_benchmark_report(results, strategies, gatekeeper_ip, ip_to_role):
-    os.makedirs('results', exist_ok=True)
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    results_dir = os.path.join(project_root, 'results')
     
-    with open("results/benchmark_result.txt", 'w') as f:
+    os.makedirs(results_dir, exist_ok=True)
+    
+    results_file = os.path.join(results_dir, 'benchmark_result.txt')
+    
+    with open(results_file, 'w') as f:
         f.write(f"Benchmark Results - Gatekeeper: {gatekeeper_ip}\n")
         f.write("-" * 50 + "\n")
         
@@ -72,8 +83,8 @@ def save_benchmark_report(results, strategies, gatekeeper_ip, ip_to_role):
                 role = ip_to_role.get(ip, ip)
                 hosts[role] = hosts.get(role, 0) + 1
             f.write(f"  {strategy.upper()}: {hosts}\n")
-    
-    print('- Benchmark saved to results/benchmark_result.txt')
+
+    print('\n- All Cluster Benchmark results are available')
 
 
 def run_cluster_benchmark(gatekeeper_ip, manager_ip, worker_ips, api_key="test-api-key"):
@@ -166,7 +177,6 @@ def collect_node_sysbench(gatekeeper_ip, node_name, node_ip, key_path, results_d
     results_file = os.path.join(results_dir, f'{node_name}_sysbench_results.txt')
     with open(results_file, 'w') as f:
         f.write(stdout)
-    print(f'- Saved to: {results_file}')
     return True
 
 
@@ -176,7 +186,9 @@ def collect_sysbench(gatekeeper_ip, manager_ip, worker_ips, key_path):
     if not setup_ssh_key_on_gatekeeper(gatekeeper_ip, key_path):
         return False
     
-    results_dir = 'results/'
+    project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    results_dir = os.path.join(project_root, 'results')
+    
     os.makedirs(results_dir, exist_ok=True)
     
     all_nodes = {'manager': manager_ip, **{f'worker-{i+1}': ip for i, ip in enumerate(worker_ips)}}
@@ -184,5 +196,5 @@ def collect_sysbench(gatekeeper_ip, manager_ip, worker_ips, key_path):
     for node_name, node_ip in all_nodes.items():
         collect_node_sysbench(gatekeeper_ip, node_name, node_ip, key_path, results_dir)
     
-    print(f'- All sysbench results saved to: {results_dir}')
+    print('- All sysbench results are available')
     return True
