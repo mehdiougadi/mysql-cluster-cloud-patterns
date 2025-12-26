@@ -37,17 +37,21 @@ The architecture consists of a three-tier system organized into public and priva
 ```
 .
 ├── scripts/
-│   ├── main.py              # Main deployment script
-│   ├── cleanup.py           # Resource cleanup script
-│   └── benchmark.py         # Benchmarking utilities
+│   ├── main.py
+│   ├── cleanup.py
+│   └── benchmark.py
 ├── user-data/
-│   ├── manager.tpl          # Manager node configuration
-│   ├── worker.tpl           # Worker node configuration
-│   ├── proxy.tpl            # Proxy instance configuration
-│   └── gatekeeper.tpl       # Gatekeeper instance configuration
+│   ├── manager.tpl
+│   ├── worker.tpl
+│   ├── proxy.tpl
+│   └── gatekeeper.tpl
 ├── results/
-│   ├── sysbench_chart.png   # Sysbench benchmark results
-│   └── benchmark_chart.png  # Cluster benchmark results
+│   ├── sysbench_chart.png
+│   ├── benchmark_chart.png
+│   ├── benchmark_result.txt
+│   ├── manager_sysbench_results.txt
+│   ├── worker-1_sysbench_results.txt
+│   └── worker-2_sysbench_results.txt
 ├── images/
 │   └── lab_setup.png        # Architecture diagram
 ├── requirements.txt
@@ -210,57 +214,6 @@ curl -X POST http://<GATEKEEPER_IP>:8080/query \
 ### API Key
 Default API key is `test-api-key` (configured in Gatekeeper user data)
 
-## Configuration
-
-### Modifying Instance Types
-
-Edit `scripts/main.py`:
-
-```python
-# Database instances
-instance_type='t2.micro'
-
-# Proxy and Gatekeeper
-instance_type='t2.large'
-```
-
-### Changing Network Configuration
-
-Edit CIDR blocks in `main.py`:
-
-```python
-VPC_CIDR = '10.0.0.0/16'
-PUBLIC_SUBNET_CIDR = '10.0.1.0/24'
-PRIVATE_SUBNET_CIDR = '10.0.2.0/24'
-```
-
-### Adjusting Worker Count
-
-```python
-worker_ids, worker_ips = create_worker_instances(
-    nbrInstances=2,  # Change this value
-    ...
-)
-```
-
-## Troubleshooting
-
-### Instances Not Starting
-- Check AWS service quotas for EC2 instances in your region
-- Verify IAM permissions for EC2, VPC, and network operations
-
-### SSH Connection Issues
-- Ensure key pair file has correct permissions: `chmod 400 mysql-cluster-key.pem`
-- Verify security group allows SSH from your IP
-
-### Benchmarking Fails
-- Wait longer for instances to fully initialize (increase sleep time)
-- Check user data scripts executed successfully: `tail -f /var/log/cloud-init-output.log`
-
-### API Key Authentication Fails
-- Verify X-API-Key header matches the configured key
-- Check Gatekeeper logs: `ssh -i mysql-cluster-key.pem ubuntu@<GATEKEEPER_IP> journalctl -u gatekeeper -f`
-
 ## Security Considerations
 
 - **Network Isolation**: Database instances have no direct internet access
@@ -271,12 +224,7 @@ worker_ids, worker_ips = create_worker_instances(
 
 ## Cleanup
 
-The script automatically cleans up all resources after benchmarking. To manually cleanup:
-
-```bash
-cd scripts
-python cleanup.py
-```
+The script automatically cleans up all resources after benchmarking.
 
 ## Demo Video
 
