@@ -53,7 +53,7 @@ The architecture consists of a three-tier system organized into public and priva
 │   ├── worker-1_sysbench_results.txt
 │   └── worker-2_sysbench_results.txt
 ├── images/
-│   └── lab_setup.png        # Architecture diagram
+│   └── lab_setup.png
 ├── requirements.txt
 └── README.md
 ```
@@ -228,7 +228,7 @@ The script automatically cleans up all resources after benchmarking.
 
 ## Demo Video
 
-A complete demonstration video showing code walkthrough, deployment, and results is available in the Moodle submission.
+[Watch the video demonstration](https://www.youtube.com/watch?v=EfIxCes5JJg)
 
 ## Contributors
 
