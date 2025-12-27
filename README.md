@@ -174,9 +174,9 @@ The sysbench results show performance variation across identical t2.micro instan
 
 ![Sysbench Results](results/sysbench_chart.png)
 
-- **Worker-1**: 884.3 TPS (highest performance)
-- **Worker-2**: 580.0 TPS
-- **Manager**: 552.9 TPS (lowest due to replication overhead)
+- **Worker-2**: 878.0 TPS (highest performance)
+- **Worker-1**: 858.5 TPS
+- **Manager**: 852.1 TPS (lowest due to replication overhead)
 
 ### Cluster Response Times by Strategy
 
@@ -186,9 +186,9 @@ All three routing strategies show similar performance with minimal variance:
 
 | Strategy | Read (ms) | Write (ms) |
 |----------|-----------|------------|
-| Direct | 71.0 | 75.5 |
-| Random | 71.2 | 76.1 |
-| Customized | 71.9 | 76.6 |
+| Direct | 79.2 | 91.8 |
+| Random | 82.3 | 90.6 |
+| Customized | 80.9 | 89.3 |
 
 The < 1.5% variance indicates network latency dominates response times rather than database processing.
 
