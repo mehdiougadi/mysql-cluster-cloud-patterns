@@ -63,8 +63,8 @@ The architecture consists of a three-tier system organized into public and priva
 ### 1. Clone the Repository
 
 ```bash
-git clone <repository-url>
-cd <repository-name>
+git clone https://github.com/mehdiougadi/mysql-cluster-cloud-patterns.git
+cd ./mysql-cluster-cloud-patterns
 ```
 
 ### 2. Install Dependencies
